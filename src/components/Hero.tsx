@@ -3,8 +3,6 @@ import { Cpu, Trophy, Users } from 'lucide-react';
 export default function Hero() {
   return (
     <section id="home" className="min-h-screen flex items-center justify-center relative overflow-hidden pt-20">
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-600/10 via-black to-blue-900/10" />
-
       <div className="absolute inset-0">
         <div className="absolute top-20 left-20 w-72 h-72 bg-blue-500/20 rounded-full blur-3xl animate-pulse-slow" />
         <div className="absolute bottom-20 right-20 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl animate-pulse-slow delay-1000" />

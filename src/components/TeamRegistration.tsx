@@ -150,8 +150,6 @@ export default function TeamRegistration() {
 
   return (
     <section id="register" className="min-h-screen py-20 relative overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-b from-black via-gray-900 to-black" />
-
       <div className="container mx-auto px-6 relative z-10">
         <div className="text-center mb-16 animate-fade-in">
           <h2 className="text-5xl font-bold text-white mb-4">

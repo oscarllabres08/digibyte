@@ -45,10 +45,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-    // User is automatically cleared via onAuthStateChange
-    setUser(null);
+    try {
+      // If there's no active session, skip calling signOut on Supabase to avoid 403 noise
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (sessionData.session) {
+        const { error } = await supabase.auth.signOut();
+        if (error) {
+          // Optional: you can log this in development if needed
+          // console.warn('Supabase signOut error (ignored):', error.message);
+        }
+      }
+    } catch (err: any) {
+      // Swallow unexpected errors; we still clear local auth state below
+      // console.warn('Unexpected signOut error (ignored):', err?.message ?? err);
+    } finally {
+      // Ensure local auth state is cleared so UI updates correctly
+      setUser(null);
+    }
   };
 
   return (

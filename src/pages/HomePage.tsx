@@ -6,7 +6,7 @@ import Champions from '../components/Champions';
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen">
       <Header />
       <Hero />
       <TournamentInfo />

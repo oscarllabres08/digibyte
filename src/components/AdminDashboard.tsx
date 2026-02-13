@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Users, Trophy, Grid3x3, LayoutDashboard, Info, Menu, X, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,6 +15,7 @@ export default function AdminDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const { signOut } = useAuth();
+  const logoutTriggeredRef = useRef(false);
 
   const pages = [
     { id: 'teams' as Page, label: 'Team Management', icon: Users },
@@ -39,6 +40,41 @@ export default function AdminDashboard() {
     navigate('/', { replace: true });
     setLogoutModalOpen(false);
   };
+
+  // Auto logout when tab/window is closed or navigated away (but NOT just when switching tabs)
+  useEffect(() => {
+    const performAutoLogout = async () => {
+      // Prevent multiple logout calls
+      if (logoutTriggeredRef.current) return;
+      logoutTriggeredRef.current = true;
+
+      try {
+        await signOut();
+      } catch (error) {
+        console.error('Error during auto logout:', error);
+      }
+    };
+
+    // Handle beforeunload (page is about to unload)
+    const handleBeforeUnload = () => {
+      performAutoLogout();
+    };
+
+    // Handle pagehide (page is being hidden)
+    const handlePageHide = () => {
+      performAutoLogout();
+    };
+
+    // Add event listeners
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [signOut]);
 
   const renderPage = () => {
     switch (activePage) {
