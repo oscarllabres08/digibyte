@@ -144,6 +144,9 @@ export default function Header() {
                 {user ? (
                   <button
                     onClick={async () => {
+                      const confirmed = window.confirm('Are you sure you want to logout?');
+                      if (!confirmed) return;
+
                       await signOut();
                       setSidebarOpen(false);
                     }}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Check, X, Edit, Trash2, Plus, Save, Upload } from 'lucide-react';
 import { supabase, Team } from '../../lib/supabase';
+import ConfirmModal from '../ConfirmModal';
 
 export default function TeamsManagementPage() {
   const [teams, setTeams] = useState<Team[]>([]);
@@ -17,6 +18,17 @@ export default function TeamsManagementPage() {
     team_photo: '',
     fb: '',
     contact_no: '',
+  });
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    targetId: string | null;
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    targetId: null,
   });
 
   useEffect(() => {
@@ -96,8 +108,6 @@ export default function TeamsManagementPage() {
   };
 
   const deleteTeam = async (teamId: string) => {
-    if (!confirm('Are you sure you want to delete this team?')) return;
-
     setLoading(true);
     const { error } = await supabase.from('teams').delete().eq('id', teamId);
 
@@ -105,6 +115,15 @@ export default function TeamsManagementPage() {
       await loadTeams();
     }
     setLoading(false);
+  };
+
+  const openDeleteTeamConfirm = (team: Team) => {
+    setConfirmState({
+      open: true,
+      title: 'Delete Team',
+      message: `Are you sure you want to delete "${team.team_name}"? This action cannot be undone.`,
+      targetId: team.id,
+    });
   };
 
   const handleEdit = (team: Team) => {
@@ -151,7 +170,7 @@ export default function TeamsManagementPage() {
     setFormData({ ...formData, team_photo: '' });
   };
 
-  const uploadImage = async (file: File): Promise<string | null> => {
+  const uploadImage = async (file: File): Promise<string> => {
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
@@ -171,7 +190,7 @@ export default function TeamsManagementPage() {
         .from('team-photos')
         .getPublicUrl(filePath);
 
-      return data.publicUrl;
+      return data.publicUrl as string;
     } catch (err) {
       console.error('Error uploading image:', err);
       throw err;
@@ -548,7 +567,7 @@ export default function TeamsManagementPage() {
               </button>
 
               <button
-                onClick={() => deleteTeam(team.id)}
+                onClick={() => openDeleteTeamConfirm(team)}
                 disabled={loading}
                 className="px-3 md:px-4 py-1.5 md:py-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/40 transition-all flex items-center space-x-1.5 md:space-x-2 text-xs md:text-sm"
               >
@@ -565,6 +584,24 @@ export default function TeamsManagementPage() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        loading={loading}
+        onConfirm={async () => {
+          if (confirmState.targetId) {
+            await deleteTeam(confirmState.targetId);
+          }
+          setConfirmState((prev) => ({ ...prev, open: false, targetId: null }));
+        }}
+        onCancel={() =>
+          setConfirmState((prev) => ({ ...prev, open: false, targetId: null }))
+        }
+      />
     </div>
   );
 }

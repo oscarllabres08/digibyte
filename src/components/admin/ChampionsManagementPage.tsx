@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Trophy, Award, Medal, Plus, Save } from 'lucide-react';
+import { Trophy, Award, Medal, Plus, Save, Trash2 } from 'lucide-react';
 import { supabase, Champion, Team } from '../../lib/supabase';
+import ConfirmModal from '../ConfirmModal';
 
 type ChampionWithTeam = Champion & { teams: Team };
 
@@ -15,6 +16,17 @@ export default function ChampionsManagementPage() {
     position: 1,
     week: 1,
     year: new Date().getFullYear(),
+  });
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    targetId: string | null;
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    targetId: null,
   });
 
   useEffect(() => {
@@ -69,6 +81,36 @@ export default function ChampionsManagementPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const deleteChampion = async (championId: string) => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('champions')
+        .delete()
+        .eq('id', championId);
+
+      if (error) {
+        console.error('Delete error:', error);
+        throw error;
+      }
+
+      await loadChampions();
+    } catch (err) {
+      alert('Error deleting champion: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openDeleteChampionConfirm = (champion: ChampionWithTeam) => {
+    setConfirmState({
+      open: true,
+      title: 'Delete Weekly Champion',
+      message: `Are you sure you want to delete ${getPositionText(champion.position)} "${champion.teams.team_name}"?`,
+      targetId: champion.id,
+    });
   };
 
   const getPositionIcon = (position: number) => {
@@ -261,16 +303,45 @@ export default function ChampionsManagementPage() {
                 />
               )}
 
-              <div className="text-sm text-gray-400">
+              <div className="text-sm text-gray-400 mb-4">
                 <p>Captain: {champion.teams.team_captain}</p>
                 {champion.teams.team_members.length > 0 && (
                   <p>Members: {champion.teams.team_members.join(', ')}</p>
                 )}
               </div>
+
+              <div className="pt-4 border-t border-blue-500/20">
+                <button
+                  onClick={() => openDeleteChampionConfirm(champion)}
+                  disabled={loading}
+                  className="w-full px-4 py-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/40 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 text-sm"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete</span>
+                </button>
+              </div>
             </div>
           ))}
         </div>
       )}
+
+      <ConfirmModal
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        loading={loading}
+        onConfirm={async () => {
+          if (confirmState.targetId) {
+            await deleteChampion(confirmState.targetId);
+          }
+          setConfirmState((prev) => ({ ...prev, open: false, targetId: null }));
+        }}
+        onCancel={() =>
+          setConfirmState((prev) => ({ ...prev, open: false, targetId: null }))
+        }
+      />
     </div>
   );
 }

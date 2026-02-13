@@ -6,6 +6,7 @@ import TeamsManagementPage from './admin/TeamsManagementPage';
 import ChampionsManagementPage from './admin/ChampionsManagementPage';
 import BracketGeneratorPage from './admin/BracketGeneratorPage';
 import TournamentManagementPage from './admin/TournamentManagementPage';
+import ConfirmModal from './ConfirmModal';
 
 type Page = 'teams' | 'champions' | 'brackets' | 'tournaments';
 
@@ -27,9 +28,16 @@ export default function AdminDashboard() {
     setSidebarOpen(false);
   };
 
-  const handleLogout = async () => {
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+
+  const handleLogout = () => {
+    setLogoutModalOpen(true);
+  };
+
+  const confirmLogout = async () => {
     await signOut();
     navigate('/', { replace: true });
+    setLogoutModalOpen(false);
   };
 
   const renderPage = () => {
@@ -179,6 +187,16 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        open={logoutModalOpen}
+        title="Logout"
+        message="Are you sure you want to logout from the admin dashboard?"
+        confirmLabel="Logout"
+        cancelLabel="Stay Logged In"
+        onConfirm={confirmLogout}
+        onCancel={() => setLogoutModalOpen(false)}
+      />
     </section>
   );
 }

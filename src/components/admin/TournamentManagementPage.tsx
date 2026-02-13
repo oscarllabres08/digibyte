@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Edit2, Save, X, Plus } from 'lucide-react';
 import { supabase, Tournament } from '../../lib/supabase';
+import ConfirmModal from '../ConfirmModal';
 
 export default function TournamentManagementPage() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
@@ -16,6 +17,17 @@ export default function TournamentManagementPage() {
     prize_1st: '',
     prize_2nd: '',
     prize_3rd: '',
+  });
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    targetId: string | null;
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    targetId: null,
   });
 
   useEffect(() => {
@@ -119,8 +131,6 @@ export default function TournamentManagementPage() {
   };
 
   const deleteTournament = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this tournament?')) return;
-
     setLoading(true);
     try {
       const { error } = await supabase.from('tournaments').delete().eq('id', id);
@@ -134,6 +144,15 @@ export default function TournamentManagementPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const openDeleteTournamentConfirm = (tournament: Tournament) => {
+    setConfirmState({
+      open: true,
+      title: 'Delete Tournament',
+      message: `Are you sure you want to delete "${tournament.title}"? This action cannot be undone.`,
+      targetId: tournament.id,
+    });
   };
 
   return (
@@ -294,7 +313,7 @@ export default function TournamentManagementPage() {
                   <Edit2 className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => deleteTournament(tournament.id)}
+                  onClick={() => openDeleteTournamentConfirm(tournament)}
                   className="p-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/40 transition-colors flex items-center justify-center"
                   title="Delete"
                 >
@@ -352,6 +371,24 @@ export default function TournamentManagementPage() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        loading={loading}
+        onConfirm={async () => {
+          if (confirmState.targetId) {
+            await deleteTournament(confirmState.targetId);
+          }
+          setConfirmState((prev) => ({ ...prev, open: false, targetId: null }));
+        }}
+        onCancel={() =>
+          setConfirmState((prev) => ({ ...prev, open: false, targetId: null }))
+        }
+      />
     </div>
   );
 }

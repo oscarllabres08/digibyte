@@ -48,7 +48,7 @@ export default function TeamRegistration() {
     setFormData({ ...formData, team_photo: '' });
   };
 
-  const uploadImage = async (file: File): Promise<string | null> => {
+  const uploadImage = async (file: File): Promise<string> => {
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
@@ -68,7 +68,7 @@ export default function TeamRegistration() {
         .from('team-photos')
         .getPublicUrl(filePath);
 
-      return data.publicUrl;
+      return data.publicUrl as string;
     } catch (err) {
       console.error('Error uploading image:', err);
       throw err;
