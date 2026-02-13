@@ -53,11 +53,11 @@ export default function AdminLogin({ onClose }: AdminLoginProps) {
               type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="username@digibyte.com"
+              placeholder="admin@digibyte.com"
               className="w-full px-4 py-3 bg-black/50 border border-blue-500/30 rounded-lg text-white focus:outline-none focus:border-blue-500 transition-colors"
               required
             />
-            <p className="text-gray-400 text-xs mt-1">Default: adminoscar@digibyte.com</p>
+            <p className="text-gray-400 text-xs mt-1">Default: shopadmin@digibyte.com</p>
           </div>
 
           <div>

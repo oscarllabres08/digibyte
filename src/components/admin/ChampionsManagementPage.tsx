@@ -112,15 +112,15 @@ export default function ChampionsManagementPage() {
 
   return (
     <div>
-      <div className="mb-6 flex justify-between items-center">
-        <h3 className="text-2xl font-bold text-white">
+      <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h3 className="text-xl md:text-2xl font-bold text-white">
           Weekly Champions ({champions.length})
         </h3>
         <button
           onClick={() => setShowAddForm(true)}
-          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center space-x-2 glow-button"
+          className="px-4 sm:px-6 py-2 sm:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center space-x-2 glow-button text-sm md:text-base w-full sm:w-auto"
         >
-          <Plus className="w-5 h-5" />
+          <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
           <span>Add Champion</span>
         </button>
       </div>
@@ -197,11 +197,11 @@ export default function ChampionsManagementPage() {
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <button
                 type="submit"
                 disabled={loading}
-                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center space-x-2 disabled:opacity-50"
+                className="px-4 sm:px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 text-sm md:text-base w-full sm:w-auto"
               >
                 <Save className="w-4 h-4" />
                 <span>{loading ? 'Adding...' : 'Add Champion'}</span>
@@ -218,7 +218,7 @@ export default function ChampionsManagementPage() {
                     year: new Date().getFullYear(),
                   });
                 }}
-                className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-all"
+                className="px-4 sm:px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-all text-sm md:text-base w-full sm:w-auto"
               >
                 Cancel
               </button>

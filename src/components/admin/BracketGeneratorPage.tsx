@@ -87,21 +87,21 @@ export default function BracketGeneratorPage() {
   return (
     <div>
       <div className="mb-6">
-        <h3 className="text-2xl font-bold text-white mb-2">Tournament Brackets</h3>
-        <p className="text-gray-400">
+        <h3 className="text-xl md:text-2xl font-bold text-white mb-2">Tournament Brackets</h3>
+        <p className="text-gray-400 text-sm md:text-base">
           Paid Teams: {paidTeamsCount} / {teams.length}
         </p>
       </div>
 
-      <div className="mb-8 bg-gray-900/50 border border-blue-500/20 rounded-xl p-6 glow-box">
-        <div className="flex flex-wrap gap-4 mb-6">
+      <div className="mb-8 bg-gray-900/50 border border-blue-500/20 rounded-xl p-4 md:p-6 glow-box">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-6">
           <button
             onClick={generateBrackets}
             disabled={paidTeamsCount < 2}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 sm:px-6 py-2 sm:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base w-full sm:w-auto"
           >
-            <Shuffle className="w-5 h-5" />
-            <span>Generate Random Brackets (1st Elimination)</span>
+            <Shuffle className="w-4 h-4 sm:w-5 sm:h-5" />
+            <span className="text-center">Generate Random Brackets (1st Elimination)</span>
           </button>
 
           {brackets.length > 0 && (
@@ -111,14 +111,14 @@ export default function BracketGeneratorPage() {
                 value={tournamentId}
                 onChange={(e) => setTournamentId(e.target.value)}
                 placeholder="Tournament ID"
-                className="px-4 py-3 bg-black/50 border border-blue-500/30 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                className="px-4 py-2 sm:py-3 bg-black/50 border border-blue-500/30 rounded-lg text-white focus:outline-none focus:border-blue-500 text-sm md:text-base w-full sm:w-auto"
               />
               <button
                 onClick={saveBrackets}
                 disabled={saving || !tournamentId}
-                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center space-x-2 disabled:opacity-50"
+                className="px-4 sm:px-6 py-2 sm:py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 text-sm md:text-base w-full sm:w-auto"
               >
-                <Save className="w-5 h-5" />
+                <Save className="w-4 h-4 sm:w-5 sm:h-5" />
                 <span>{saving ? 'Saving...' : 'Save Brackets'}</span>
               </button>
             </>
@@ -134,22 +134,22 @@ export default function BracketGeneratorPage() {
         {brackets.length > 0 && (
           <div className="space-y-4">
             <h4 className="text-xl font-semibold text-white">First Round Matches</h4>
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3 md:gap-4">
               {brackets.map((match) => (
                 <div
                   key={match.matchNumber}
-                  className="bg-black/30 border border-blue-500/20 rounded-lg p-4"
+                  className="bg-black/30 border border-blue-500/20 rounded-lg p-3 md:p-4"
                 >
-                  <div className="text-blue-400 text-sm mb-3">Match {match.matchNumber}</div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded">
-                      <span className="text-white font-semibold">
+                  <div className="text-blue-400 text-xs md:text-sm mb-2 md:mb-3">Match {match.matchNumber}</div>
+                  <div className="space-y-1.5 md:space-y-2">
+                    <div className="flex items-center justify-between p-2 md:p-3 bg-gray-800/50 rounded">
+                      <span className="text-white font-semibold text-sm md:text-base truncate">
                         {match.team1?.team_name || 'BYE'}
                       </span>
                     </div>
-                    <div className="text-center text-gray-500 text-sm">VS</div>
-                    <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded">
-                      <span className="text-white font-semibold">
+                    <div className="text-center text-gray-500 text-xs md:text-sm">VS</div>
+                    <div className="flex items-center justify-between p-2 md:p-3 bg-gray-800/50 rounded">
+                      <span className="text-white font-semibold text-sm md:text-base truncate">
                         {match.team2?.team_name || 'BYE'}
                       </span>
                     </div>

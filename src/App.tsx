@@ -1,20 +1,16 @@
-import Header from './components/Header';
-import Hero from './components/Hero';
-import TournamentInfo from './components/TournamentInfo';
-import TeamRegistration from './components/TeamRegistration';
-import Champions from './components/Champions';
-import AdminDashboard from './components/AdminDashboard';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import HomePage from './pages/HomePage';
+import AdminPage from './pages/AdminPage';
 
 function App() {
   return (
-    <div className="min-h-screen bg-black">
-      <Header />
-      <Hero />
-      <TournamentInfo />
-      <TeamRegistration />
-      <Champions />
-      <AdminDashboard />
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/admin" element={<AdminPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 

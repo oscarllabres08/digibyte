@@ -24,6 +24,9 @@ export type Tournament = {
   rules?: string;
   status: string;
   start_date?: string;
+  prize_1st?: string;
+  prize_2nd?: string;
+  prize_3rd?: string;
   created_at: string;
 };
 

@@ -16,8 +16,8 @@ export default function Hero() {
             <Cpu className="w-20 h-20 text-blue-400 animate-float glow-icon" />
           </div>
 
-          <h1 className="text-6xl md:text-8xl font-bold text-white mb-6 tracking-wider">
-            DIGI<span className="text-blue-400 glow-text">BYTE</span>
+          <h1 className="text-4xl md:text-6xl lg:text-8xl font-bold text-white mb-6 tracking-wider">
+            <span className="text-blue-400 glow-text">Digibyte</span> Net Cafe
           </h1>
 
           <p className="text-xl md:text-2xl text-gray-300 mb-12 max-w-2xl mx-auto">

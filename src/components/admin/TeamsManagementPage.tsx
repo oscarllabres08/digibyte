@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Check, X, Edit, Trash2, Plus, Save } from 'lucide-react';
+import { Check, X, Edit, Trash2, Plus, Save, Upload } from 'lucide-react';
 import { supabase, Team } from '../../lib/supabase';
 
 export default function TeamsManagementPage() {
@@ -7,6 +7,9 @@ export default function TeamsManagementPage() {
   const [loading, setLoading] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [formData, setFormData] = useState({
     team_name: '',
     team_captain: '',
@@ -114,7 +117,65 @@ export default function TeamsManagementPage() {
       fb: team.fb || '',
       contact_no: team.contact_no,
     });
+    setPreviewUrl(team.team_photo || null);
+    setSelectedFile(null);
     setShowAddForm(true);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file');
+        return;
+      }
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size must be less than 5MB');
+        return;
+      }
+      setSelectedFile(file);
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviewUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removeImage = () => {
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setFormData({ ...formData, team_photo: '' });
+  };
+
+  const uploadImage = async (file: File): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
+      const filePath = `teams/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('team-photos')
+        .upload(filePath, file);
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        throw uploadError;
+      }
+
+      // Get public URL
+      const { data } = supabase.storage
+        .from('team-photos')
+        .getPublicUrl(filePath);
+
+      return data.publicUrl;
+    } catch (err) {
+      console.error('Error uploading image:', err);
+      throw err;
+    }
   };
 
   const handleMemberChange = (index: number, value: string) => {
@@ -135,6 +196,23 @@ export default function TeamsManagementPage() {
     setLoading(true);
 
     try {
+      let imageUrl = formData.team_photo;
+
+      // Upload image if a new file is selected
+      if (selectedFile) {
+        setUploading(true);
+        try {
+          imageUrl = await uploadImage(selectedFile);
+          if (!imageUrl) {
+            throw new Error('Failed to upload image');
+          }
+        } catch (uploadErr) {
+          throw new Error('Failed to upload image. Please try again.');
+        } finally {
+          setUploading(false);
+        }
+      }
+
       const filteredMembers = formData.team_members.filter(m => m.trim() !== '');
 
       if (editingTeam) {
@@ -145,31 +223,40 @@ export default function TeamsManagementPage() {
             team_name: formData.team_name,
             team_captain: formData.team_captain,
             team_members: filteredMembers,
-            team_photo: formData.team_photo || null,
+            team_photo: imageUrl || null,
             fb: formData.fb || null,
             contact_no: formData.contact_no,
           })
           .eq('id', editingTeam.id);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Update error:', error);
+          throw error;
+        }
       } else {
         // Add new team
         const { error } = await supabase.from('teams').insert({
           team_name: formData.team_name,
           team_captain: formData.team_captain,
           team_members: filteredMembers,
-          team_photo: formData.team_photo || null,
+          team_photo: imageUrl || null,
           fb: formData.fb || null,
           contact_no: formData.contact_no,
           paid: false,
-        });
+        }).select();
 
-        if (error) throw error;
+        if (error) {
+          console.error('Insert error:', error);
+          console.error('Error details:', JSON.stringify(error, null, 2));
+          throw error;
+        }
       }
 
       await loadTeams();
       setShowAddForm(false);
       setEditingTeam(null);
+      setSelectedFile(null);
+      setPreviewUrl(null);
       setFormData({
         team_name: '',
         team_captain: '',
@@ -179,7 +266,31 @@ export default function TeamsManagementPage() {
         contact_no: '',
       });
     } catch (err) {
-      alert('Error saving team: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      console.error('Error saving team:', err);
+      let errorMessage = 'Unknown error';
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (typeof err === 'object' && err !== null) {
+        // Handle Supabase error object
+        const supabaseError = err as any;
+        if (supabaseError.message) {
+          errorMessage = supabaseError.message;
+        } else if (supabaseError.error?.message) {
+          errorMessage = supabaseError.error.message;
+        } else if (supabaseError.code) {
+          errorMessage = `Error code: ${supabaseError.code}`;
+        }
+      }
+      
+      // Check for common errors
+      if (errorMessage.includes('duplicate') || errorMessage.includes('unique') || errorMessage.includes('violates unique constraint')) {
+        errorMessage = 'Team name already exists. Please choose a different name.';
+      } else if (errorMessage.includes('permission') || errorMessage.includes('policy') || errorMessage.includes('RLS')) {
+        errorMessage = 'Permission denied. Please ensure you are logged in as admin.';
+      }
+      
+      alert('Error saving team: ' + errorMessage);
     } finally {
       setLoading(false);
     }
@@ -188,6 +299,8 @@ export default function TeamsManagementPage() {
   const cancelForm = () => {
     setShowAddForm(false);
     setEditingTeam(null);
+    setSelectedFile(null);
+    setPreviewUrl(null);
     setFormData({
       team_name: '',
       team_captain: '',
@@ -200,8 +313,8 @@ export default function TeamsManagementPage() {
 
   return (
     <div>
-      <div className="mb-6 flex justify-between items-center">
-        <h3 className="text-2xl font-bold text-white">
+      <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h3 className="text-xl md:text-2xl font-bold text-white">
           Teams Management ({teams.length})
         </h3>
         <button
@@ -209,9 +322,9 @@ export default function TeamsManagementPage() {
             setEditingTeam(null);
             setShowAddForm(true);
           }}
-          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center space-x-2 glow-button"
+          className="px-4 sm:px-6 py-2 sm:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center space-x-2 glow-button text-sm md:text-base w-full sm:w-auto"
         >
-          <Plus className="w-5 h-5" />
+          <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
           <span>Add Team</span>
         </button>
       </div>
@@ -271,17 +384,43 @@ export default function TeamsManagementPage() {
               </div>
             </div>
 
+            <div>
+              <label className="block text-gray-300 mb-2">Team Photo</label>
+              {previewUrl ? (
+                <div className="relative mb-4">
+                  <img
+                    src={previewUrl}
+                    alt="Team photo preview"
+                    className="w-full h-48 object-cover rounded-lg border border-blue-500/30"
+                  />
+                  <button
+                    type="button"
+                    onClick={removeImage}
+                    className="absolute top-2 right-2 p-2 bg-red-600/80 text-white rounded-full hover:bg-red-600 transition-all"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-blue-500/30 border-dashed rounded-lg cursor-pointer bg-black/50 hover:bg-black/70 transition-all mb-4">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <Upload className="w-8 h-8 mb-2 text-blue-400" />
+                    <p className="mb-2 text-sm text-gray-400">
+                      <span className="font-semibold text-blue-400">Click to upload</span> or drag and drop
+                    </p>
+                    <p className="text-xs text-gray-500">PNG, JPG, GIF (MAX. 5MB)</p>
+                  </div>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                  />
+                </label>
+              )}
+            </div>
+
             <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-gray-300 mb-2">Team Photo URL</label>
-                <input
-                  type="url"
-                  value={formData.team_photo}
-                  onChange={(e) => setFormData({ ...formData, team_photo: e.target.value })}
-                  placeholder="https://example.com/photo.jpg"
-                  className="w-full px-4 py-2 bg-black/50 border border-blue-500/30 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
               <div>
                 <label className="block text-gray-300 mb-2">Contact Number *</label>
                 <input
@@ -309,11 +448,13 @@ export default function TeamsManagementPage() {
             <div className="flex gap-3">
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || uploading}
                 className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center space-x-2 disabled:opacity-50"
               >
                 <Save className="w-4 h-4" />
-                <span>{loading ? 'Saving...' : editingTeam ? 'Update' : 'Add'} Team</span>
+                <span>
+                  {uploading ? 'Uploading image...' : loading ? 'Saving...' : editingTeam ? 'Update' : 'Add'} Team
+                </span>
               </button>
               <button
                 type="button"
@@ -327,90 +468,91 @@ export default function TeamsManagementPage() {
         </div>
       )}
 
-      <div className="grid gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         {teams.map((team) => (
           <div
             key={team.id}
-            className={`bg-gray-900/50 border rounded-xl p-6 animate-slide-up ${
+            className={`bg-gray-900/50 border rounded-xl p-4 md:p-6 animate-slide-up ${
               team.paid
                 ? 'glow-green-border'
                 : 'border-blue-500/20 glow-box-subtle'
             }`}
           >
-            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-              <div className="flex-1">
-                <div className="flex items-center space-x-3 mb-3">
-                  <h3 className="text-2xl font-bold text-white">{team.team_name}</h3>
-                  {team.paid ? (
-                    <span className="px-3 py-1 bg-green-600/20 text-green-400 rounded-full text-sm border border-green-500/30">
-                      Paid
-                    </span>
-                  ) : (
-                    <span className="px-3 py-1 bg-red-600/20 text-red-400 rounded-full text-sm border border-red-500/30">
-                      Unpaid
-                    </span>
-                  )}
+            <div className="flex flex-col gap-3 md:gap-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg md:text-xl font-bold text-white truncate">{team.team_name}</h3>
                 </div>
+                {team.paid ? (
+                  <span className="px-2 py-1 bg-green-600/20 text-green-400 rounded-full text-xs md:text-sm border border-green-500/30 flex-shrink-0">
+                    Paid
+                  </span>
+                ) : (
+                  <span className="px-2 py-1 bg-red-600/20 text-red-400 rounded-full text-xs md:text-sm border border-red-500/30 flex-shrink-0">
+                    Unpaid
+                  </span>
+                )}
+              </div>
 
-                <div className="space-y-2 text-gray-300">
-                  <p>
-                    <span className="text-blue-400">Captain:</span> {team.team_captain}
+              <div className="space-y-1.5 md:space-y-2 text-sm md:text-base text-gray-300">
+                <p className="truncate">
+                  <span className="text-blue-400">Captain:</span> {team.team_captain}
+                </p>
+                {team.team_members.length > 0 && (
+                  <p className="line-clamp-2">
+                    <span className="text-blue-400">Members:</span>{' '}
+                    {team.team_members.join(', ')}
                   </p>
-                  {team.team_members.length > 0 && (
-                    <p>
-                      <span className="text-blue-400">Members:</span>{' '}
-                      {team.team_members.join(', ')}
-                    </p>
-                  )}
-                  <p>
-                    <span className="text-blue-400">Contact:</span> {team.contact_no}
+                )}
+                <p className="truncate">
+                  <span className="text-blue-400">Contact:</span> {team.contact_no}
+                </p>
+                {team.fb && (
+                  <p className="truncate">
+                    <span className="text-blue-400">FB:</span> {team.fb}
                   </p>
-                  {team.fb && (
-                    <p>
-                      <span className="text-blue-400">Facebook:</span> {team.fb}
-                    </p>
-                  )}
-                </div>
+                )}
               </div>
 
               {team.team_photo && (
                 <img
                   src={team.team_photo}
                   alt={team.team_name}
-                  className="w-32 h-32 object-cover rounded-lg"
+                  className="w-full h-32 md:h-40 object-cover rounded-lg"
                 />
               )}
             </div>
 
-            <div className="flex flex-wrap gap-3 mt-4 pt-4 border-t border-blue-500/20">
+            <div className="flex flex-wrap gap-2 md:gap-3 mt-3 md:mt-4 pt-3 md:pt-4 border-t border-blue-500/20">
               <button
                 onClick={() => togglePaid(team.id, team.paid)}
                 disabled={loading}
-                className={`px-4 py-2 rounded-lg transition-all flex items-center space-x-2 ${
+                className={`px-3 md:px-4 py-1.5 md:py-2 rounded-lg transition-all flex items-center space-x-1.5 md:space-x-2 text-xs md:text-sm ${
                   team.paid
                     ? 'bg-red-600/20 text-red-400 hover:bg-red-600/40'
                     : 'bg-green-600/20 text-green-400 hover:bg-green-600/40'
                 }`}
               >
-                {team.paid ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
-                <span>{team.paid ? 'Mark Unpaid' : 'Mark Paid'}</span>
+                {team.paid ? <X className="w-3 h-3 md:w-4 md:h-4" /> : <Check className="w-3 h-3 md:w-4 md:h-4" />}
+                <span className="hidden sm:inline">{team.paid ? 'Mark Unpaid' : 'Mark Paid'}</span>
+                <span className="sm:hidden">{team.paid ? 'Unpaid' : 'Paid'}</span>
               </button>
 
               <button
                 onClick={() => handleEdit(team)}
                 disabled={loading}
-                className="px-4 py-2 bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600/40 transition-all flex items-center space-x-2"
+                className="px-3 md:px-4 py-1.5 md:py-2 bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600/40 transition-all flex items-center space-x-1.5 md:space-x-2 text-xs md:text-sm"
               >
-                <Edit className="w-4 h-4" />
+                <Edit className="w-3 h-3 md:w-4 md:h-4" />
                 <span>Edit</span>
               </button>
 
               <button
                 onClick={() => deleteTeam(team.id)}
                 disabled={loading}
-                className="px-4 py-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/40 transition-all flex items-center space-x-2"
+                className="px-3 md:px-4 py-1.5 md:py-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/40 transition-all flex items-center space-x-1.5 md:space-x-2 text-xs md:text-sm"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
                 <span>Delete</span>
               </button>
             </div>
