@@ -1,11 +1,15 @@
-import { useState, useEffect } from 'react';
-import { Check, X, Edit, Trash2, Plus, Save, Upload } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Check, X, Edit, Trash2, Plus, Save, Upload, Search, Filter } from 'lucide-react';
 import { supabase, Team } from '../../lib/supabase';
 import ConfirmModal from '../ConfirmModal';
+
+type PaymentFilter = 'all' | 'paid' | 'unpaid';
 
 export default function TeamsManagementPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all');
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -330,22 +334,113 @@ export default function TeamsManagementPage() {
     });
   };
 
+  // Filter teams based on search query and payment filter
+  const filteredTeams = useMemo(() => {
+    let filtered = teams;
+
+    // Apply payment filter
+    if (paymentFilter === 'paid') {
+      filtered = filtered.filter((team) => team.paid);
+    } else if (paymentFilter === 'unpaid') {
+      filtered = filtered.filter((team) => !team.paid);
+    }
+
+    // Apply search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter((team) => {
+        const teamName = team.team_name?.toLowerCase() || '';
+        const captain = team.team_captain?.toLowerCase() || '';
+        const members = team.team_members?.join(' ').toLowerCase() || '';
+        const contact = team.contact_no?.toLowerCase() || '';
+        const fb = team.fb?.toLowerCase() || '';
+        
+        return (
+          teamName.includes(query) ||
+          captain.includes(query) ||
+          members.includes(query) ||
+          contact.includes(query) ||
+          fb.includes(query)
+        );
+      });
+    }
+
+    return filtered;
+  }, [teams, searchQuery, paymentFilter]);
+
   return (
     <div>
-      <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h3 className="text-xl md:text-2xl font-bold text-white">
-          Teams Management ({teams.length})
-        </h3>
-        <button
-          onClick={() => {
-            setEditingTeam(null);
-            setShowAddForm(true);
-          }}
-          className="px-4 sm:px-6 py-2 sm:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center space-x-2 glow-button text-sm md:text-base w-full sm:w-auto"
-        >
-          <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
-          <span>Add Team</span>
-        </button>
+      <div className="mb-6 flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <h3 className="text-xl md:text-2xl font-bold text-white">
+            Teams Management ({teams.length} total, {filteredTeams.length} shown)
+          </h3>
+          <button
+            onClick={() => {
+              setEditingTeam(null);
+              setShowAddForm(true);
+            }}
+            className="px-4 sm:px-6 py-2 sm:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center space-x-2 glow-button text-sm md:text-base w-full sm:w-auto"
+          >
+            <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+            <span>Add Team</span>
+          </button>
+        </div>
+
+        {/* Search and Filter Section */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Search Input */}
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search teams by name, captain, members, contact, or Facebook..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-black/50 border border-blue-500/30 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 text-sm md:text-base"
+            />
+          </div>
+
+          {/* Payment Filter */}
+          <div className="flex items-center gap-2">
+            <Filter className="text-gray-400 w-5 h-5" />
+            <div className="flex bg-gray-800/50 border border-blue-500/30 rounded-lg p-1">
+              <button
+                type="button"
+                onClick={() => setPaymentFilter('all')}
+                className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-medium transition-all ${
+                  paymentFilter === 'all'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentFilter('paid')}
+                className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-medium transition-all ${
+                  paymentFilter === 'paid'
+                    ? 'bg-green-600 text-white'
+                    : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
+                }`}
+              >
+                Paid
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentFilter('unpaid')}
+                className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-medium transition-all ${
+                  paymentFilter === 'unpaid'
+                    ? 'bg-red-600 text-white'
+                    : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
+                }`}
+              >
+                Unpaid
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {showAddForm && (
@@ -488,7 +583,7 @@ export default function TeamsManagementPage() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-        {teams.map((team) => (
+        {filteredTeams.map((team) => (
           <div
             key={team.id}
             className={`bg-gray-900/50 border rounded-xl p-4 md:p-6 animate-slide-up ${
@@ -581,6 +676,21 @@ export default function TeamsManagementPage() {
         {teams.length === 0 && (
           <div className="text-center text-gray-400 py-20">
             <p>No teams registered yet</p>
+          </div>
+        )}
+
+        {teams.length > 0 && filteredTeams.length === 0 && (
+          <div className="text-center text-gray-400 py-20 col-span-full">
+            <p>No teams match your search criteria</p>
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setPaymentFilter('all');
+              }}
+              className="mt-4 px-4 py-2 bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600/40 transition-all text-sm"
+            >
+              Clear Filters
+            </button>
           </div>
         )}
       </div>

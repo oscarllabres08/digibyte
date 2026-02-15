@@ -11,7 +11,18 @@ import ConfirmModal from './ConfirmModal';
 type Page = 'teams' | 'champions' | 'brackets' | 'tournaments';
 
 export default function AdminDashboard() {
-  const [activePage, setActivePage] = useState<Page>('teams');
+  // Restore active page from localStorage or default to 'teams'
+  const getInitialPage = (): Page => {
+    if (typeof window !== 'undefined') {
+      const saved = window.localStorage.getItem('digibyte_admin_active_page');
+      if (saved && ['teams', 'champions', 'brackets', 'tournaments'].includes(saved)) {
+        return saved as Page;
+      }
+    }
+    return 'teams';
+  };
+
+  const [activePage, setActivePage] = useState<Page>(getInitialPage());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const { signOut } = useAuth();
@@ -27,6 +38,10 @@ export default function AdminDashboard() {
   const handlePageChange = (pageId: Page) => {
     setActivePage(pageId);
     setSidebarOpen(false);
+    // Save to localStorage so it persists across refreshes
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('digibyte_admin_active_page', pageId);
+    }
   };
 
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
@@ -190,7 +205,7 @@ export default function AdminDashboard() {
                   return (
                     <button
                       key={page.id}
-                      onClick={() => setActivePage(page.id)}
+                      onClick={() => handlePageChange(page.id)}
                       className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
                         isActive
                           ? 'bg-blue-600/20 text-blue-400 border border-blue-500/50'
