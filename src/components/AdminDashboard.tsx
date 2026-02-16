@@ -51,45 +51,15 @@ export default function AdminDashboard() {
   };
 
   const confirmLogout = async () => {
-    await signOut();
-    navigate('/', { replace: true });
     setLogoutModalOpen(false);
+    await signOut();
+    // Wait a moment to ensure logout completes before navigating
+    await new Promise(resolve => setTimeout(resolve, 200));
+    navigate('/', { replace: true });
   };
 
-  // Auto logout when tab/window is closed or navigated away (but NOT just when switching tabs)
-  useEffect(() => {
-    const performAutoLogout = async () => {
-      // Prevent multiple logout calls
-      if (logoutTriggeredRef.current) return;
-      logoutTriggeredRef.current = true;
-
-      try {
-        await signOut();
-      } catch (error) {
-        console.error('Error during auto logout:', error);
-      }
-    };
-
-    // Handle beforeunload (page is about to unload)
-    const handleBeforeUnload = () => {
-      performAutoLogout();
-    };
-
-    // Handle pagehide (page is being hidden)
-    const handlePageHide = () => {
-      performAutoLogout();
-    };
-
-    // Add event listeners
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('pagehide', handlePageHide);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.removeEventListener('pagehide', handlePageHide);
-    };
-  }, [signOut]);
+  // Removed auto-logout on page unload to prevent interference with manual logout
+  // Users should manually log out when done
 
   const renderPage = () => {
     switch (activePage) {

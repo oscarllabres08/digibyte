@@ -152,6 +152,11 @@ export default function ChampionsManagementPage() {
     }
   };
 
+  // Highlight champion and runners-up for easier admin view
+  const champion = champions.find((c) => c.position === 1) || null;
+  const firstRunnerUp = champions.find((c) => c.position === 2) || null;
+  const secondRunnerUp = champions.find((c) => c.position === 3) || null;
+
   return (
     <div>
       <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -275,53 +280,134 @@ export default function ChampionsManagementPage() {
           <p>No champions recorded yet</p>
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {champions.map((champion, index) => (
+        <div className="space-y-8">
+          {/* Champion card */}
+          {champion && (
             <div
-              key={champion.id}
-              className={`bg-gradient-to-br ${getPositionColor(champion.position)} border rounded-xl p-6 animate-slide-up glow-box-subtle hover:scale-105 transition-transform duration-300`}
-              style={{ animationDelay: `${index * 100}ms` }}
+              className={`bg-gradient-to-br ${getPositionColor(1)} border-2 border-yellow-400 rounded-2xl p-6 animate-slide-up glow-box-subtle`}
             >
               <div className="flex items-center justify-between mb-4">
-                {getPositionIcon(champion.position)}
-                <span className="text-blue-400 text-sm">
+                <div className="flex items-center gap-3">
+                  {getPositionIcon(1)}
+                  <span className="px-3 py-1 rounded-full bg-yellow-500/20 border border-yellow-400 text-yellow-300 text-xs font-semibold uppercase tracking-wide">
+                    {getPositionText(1)}
+                  </span>
+                </div>
+                <span className="text-yellow-300 text-xs">
                   Week {champion.week} - {champion.year}
                 </span>
               </div>
 
-              <h3 className="text-2xl font-bold text-white mb-2">
+              <h3 className="text-2xl md:text-3xl font-bold text-white mb-2">
                 {champion.teams.team_name}
               </h3>
 
-              <div className="text-gray-400 mb-4">{getPositionText(champion.position)}</div>
-
-              {champion.teams.team_photo && (
-                <img
-                  src={champion.teams.team_photo}
-                  alt={champion.teams.team_name}
-                  className="w-full h-40 object-cover rounded-lg mb-4"
-                />
-              )}
-
-              <div className="text-sm text-gray-400 mb-4">
+              <div className="text-sm md:text-base text-gray-200 mb-4">
                 <p>Captain: {champion.teams.team_captain}</p>
                 {champion.teams.team_members.length > 0 && (
                   <p>Members: {champion.teams.team_members.join(', ')}</p>
                 )}
               </div>
 
-              <div className="pt-4 border-t border-blue-500/20">
+              <div className="pt-4 border-t border-yellow-500/30 flex justify-end">
                 <button
                   onClick={() => openDeleteChampionConfirm(champion)}
                   disabled={loading}
-                  className="w-full px-4 py-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/40 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 text-sm"
+                  className="px-4 py-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/40 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 text-sm"
                 >
                   <Trash2 className="w-4 h-4" />
                   <span>Delete</span>
                 </button>
               </div>
             </div>
-          ))}
+          )}
+
+          {/* Runners-up cards */}
+          {(firstRunnerUp || secondRunnerUp) && (
+            <div className="grid md:grid-cols-2 gap-6">
+              {firstRunnerUp && (
+                <div
+                  key={firstRunnerUp.id}
+                  className={`bg-gradient-to-br ${getPositionColor(2)} border rounded-xl p-5 animate-slide-up glow-box-subtle`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      {getPositionIcon(2)}
+                      <span className="px-2 py-0.5 rounded-full bg-gray-500/20 border border-gray-400 text-gray-100 text-xs font-semibold uppercase tracking-wide">
+                        {getPositionText(2)}
+                      </span>
+                    </div>
+                    <span className="text-gray-200 text-xs">
+                      Week {firstRunnerUp.week} - {firstRunnerUp.year}
+                    </span>
+                  </div>
+
+                  <h3 className="text-xl font-bold text-white mb-2">
+                    {firstRunnerUp.teams.team_name}
+                  </h3>
+
+                  <div className="text-sm text-gray-300 mb-3">
+                    <p>Captain: {firstRunnerUp.teams.team_captain}</p>
+                    {firstRunnerUp.teams.team_members.length > 0 && (
+                      <p>Members: {firstRunnerUp.teams.team_members.join(', ')}</p>
+                    )}
+                  </div>
+
+                  <div className="pt-3 border-t border-blue-500/20 flex justify-end">
+                    <button
+                      onClick={() => openDeleteChampionConfirm(firstRunnerUp)}
+                      disabled={loading}
+                      className="px-4 py-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/40 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 text-sm"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Delete</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {secondRunnerUp && (
+                <div
+                  key={secondRunnerUp.id}
+                  className={`bg-gradient-to-br ${getPositionColor(3)} border rounded-xl p-5 animate-slide-up glow-box-subtle`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      {getPositionIcon(3)}
+                      <span className="px-2 py-0.5 rounded-full bg-orange-500/20 border border-orange-400 text-orange-200 text-xs font-semibold uppercase tracking-wide">
+                        {getPositionText(3)}
+                      </span>
+                    </div>
+                    <span className="text-orange-200 text-xs">
+                      Week {secondRunnerUp.week} - {secondRunnerUp.year}
+                    </span>
+                  </div>
+
+                  <h3 className="text-xl font-bold text-white mb-2">
+                    {secondRunnerUp.teams.team_name}
+                  </h3>
+
+                  <div className="text-sm text-orange-100 mb-3">
+                    <p>Captain: {secondRunnerUp.teams.team_captain}</p>
+                    {secondRunnerUp.teams.team_members.length > 0 && (
+                      <p>Members: {secondRunnerUp.teams.team_members.join(', ')}</p>
+                    )}
+                  </div>
+
+                  <div className="pt-3 border-t border-blue-500/20 flex justify-end">
+                    <button
+                      onClick={() => openDeleteChampionConfirm(secondRunnerUp)}
+                      disabled={loading}
+                      className="px-4 py-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/40 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 text-sm"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Delete</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

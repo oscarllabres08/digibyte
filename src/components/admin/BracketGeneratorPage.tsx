@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Shuffle, Save, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Shuffle, Save, X, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { supabase, Team } from '../../lib/supabase';
 import ConfirmModal from '../ConfirmModal';
 
@@ -24,7 +24,7 @@ export default function BracketGeneratorPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [brackets, setBrackets] = useState<Match[]>([]);
   const [tournamentId, setTournamentId] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<{ round: number; bracket: BracketNumber; bracketCategory?: BracketCategory } | null>(null);
   const [confirmGenerateOpen, setConfirmGenerateOpen] = useState(false);
   const [bracketType, setBracketType] = useState<BracketType>('2-brackets');
   const [saveSuccessModalOpen, setSaveSuccessModalOpen] = useState(false);
@@ -144,30 +144,63 @@ export default function BracketGeneratorPage() {
       // Round 1 is always upper bracket
       if (round === 1) return 'upper';
       
-      // Round 3+ is always upper bracket
-      if (round >= 3) return 'upper';
-      
       // For Round 2, determine based on match number
       // Lower bracket matches come after upper bracket round 2 matches
-      // Upper bracket Round 2: 4 matches for 1-bracket system, 4 matches (2 per bracket) for 2-bracket system
-      const round2Matches = allMatches.filter((m: any) => m.round === 2).sort((a: any, b: any) => a.match_number - b.match_number);
-      
-      // Upper bracket round 2 should have 4 matches (either 4 from 1 bracket or 2+2 from 2 brackets)
-      // Lower bracket matches will have match numbers higher than the 4th upper bracket match
-      if (round2Matches.length >= 4) {
-        const upperRound2LastMatch = round2Matches[3]?.match_number || 0;
-        if (matchNumber > upperRound2LastMatch) {
-          return 'lower';
+      // Upper bracket Round 2: 4 matches for 1-bracket system
+      if (round === 2) {
+        const round2Matches = allMatches.filter((m: any) => m.round === 2).sort((a: any, b: any) => a.match_number - b.match_number);
+        
+        // Upper bracket round 2 should have 4 matches (first 4 matches in Round 2)
+        // Lower bracket matches will have match numbers higher than the 4th upper bracket match
+        if (round2Matches.length > 4) {
+          // We have more than 4 Round 2 matches, so lower bracket exists
+          // First 4 matches are upper bracket, rest are lower bracket
+          const upperRound2LastMatch = round2Matches[3]?.match_number || 0;
+          if (matchNumber > upperRound2LastMatch) {
+            return 'lower';
+          }
         }
+        // If exactly 4 matches or less, all are upper bracket
+        return 'upper';
       }
+      
+      // For Round 3, determine based on match number
+      // Upper bracket Round 3: 2 matches
+      // Lower bracket Round 3: 1 match (comes after the 2nd upper bracket match)
+      if (round === 3) {
+        const round3Matches = allMatches.filter((m: any) => m.round === 3).sort((a: any, b: any) => a.match_number - b.match_number);
+        
+        // Upper bracket round 3 should have 2 matches
+        // Lower bracket match will have match number higher than the 2nd upper bracket match
+        if (round3Matches.length >= 2) {
+          const upperRound3LastMatch = round3Matches[1]?.match_number || 0;
+          if (matchNumber > upperRound3LastMatch) {
+            return 'lower';
+          }
+        }
+        return 'upper';
+      }
+      
+      // Round 20 = Lower Bracket Round 2 Final, Round 25 = Lower Bracket Round 3, Round 30 = Lower Bracket Final
+      if (round === 20 || round === 25 || round === 30) return 'lower';
+      
+      // Round 4-19 is always upper bracket
+      // Round 20 = Lower Bracket Round 2 Final, Round 25 = Lower Bracket Round 3, Round 30 = Lower Bracket Final
+      if (round >= 4 && round < 20) return 'upper';
+      if (round >= 31) return 'upper'; // Round 31+ is upper bracket
       
       return 'upper';
     };
 
-    const loaded: Match[] = data.map((row: any) => {
+    // First, deduplicate data by match_number (keep the first occurrence)
+    const uniqueData = data.filter((row: any, index: number, self: any[]) => 
+      index === self.findIndex((r: any) => r.match_number === row.match_number)
+    );
+
+    const loaded: Match[] = uniqueData.map((row: any) => {
       const bracketNum = getBracketForMatch(row);
       // Determine bracket category dynamically
-      const bracketCategory: BracketCategory = determineBracketCategory(row.round, row.match_number, data);
+      const bracketCategory: BracketCategory = determineBracketCategory(row.round, row.match_number, uniqueData);
 
       return {
         team1: findTeam(row.team1_id),
@@ -186,7 +219,12 @@ export default function BracketGeneratorPage() {
       };
     });
 
-    setBrackets(loaded);
+    // Final deduplication by matchNumber to ensure no duplicates in the final array
+    const finalLoaded = loaded.filter((match, index, self) =>
+      index === self.findIndex((m) => m.matchNumber === match.matchNumber)
+    );
+
+    setBrackets(finalLoaded);
     setBracketType(detectedBracketType);
   };
 
@@ -401,23 +439,34 @@ export default function BracketGeneratorPage() {
     // Don't auto-generate next round - user will click "Save Round" button
   };
 
-  const saveRound = async (round: number, bracket: BracketNumber) => {
-    // Determine bracket category from the matches
-    const roundMatches = brackets.filter(
+  const saveRound = async (round: number, bracket: BracketNumber, bracketCategory?: BracketCategory) => {
+    // Determine bracket category from the matches if not provided
+    let roundMatches = brackets.filter(
       (m) => m.round === round && m.bracket === bracket,
     );
     
-    if (roundMatches.length === 0) return;
+    // If bracketCategory is provided, filter by it to get only the correct bracket category matches
+    if (bracketCategory) {
+      roundMatches = roundMatches.filter((m) => m.bracketCategory === bracketCategory);
+    }
     
-    const bracketCategory = roundMatches[0].bracketCategory || 'upper';
+    if (roundMatches.length === 0) {
+      return;
+    }
+    
+    const category = bracketCategory || roundMatches[0].bracketCategory || 'upper';
+    setSaving({ round, bracket, bracketCategory: category });
 
     // Check if all matches have winners
     const allHaveWinners = roundMatches.every((m) => m.winner !== null);
     if (!allHaveWinners) {
       setSaveErrorMessage(`Please mark winners for all matches in Round ${round} before saving.`);
       setSaveErrorModalOpen(true);
+      setSaving(null);
       return;
     }
+    
+    // Use the determined category (already stored in category variable)
 
     let targetTournamentId = tournamentId;
 
@@ -466,6 +515,7 @@ export default function BracketGeneratorPage() {
     }
 
     // Save all matches in this round
+    const saveErrors: string[] = [];
     for (const match of roundMatches) {
       const winnerId =
         match.winner === 'team1'
@@ -474,151 +524,191 @@ export default function BracketGeneratorPage() {
             ? match.team2?.id || null
             : null;
 
-      await supabase
-        .from('brackets')
-        .update({ winner_id: winnerId })
-        .eq('tournament_id', targetTournamentId)
-        .eq('match_number', match.matchNumber);
-    }
-
-    // Update brackets state with saved winners and get updated brackets for next operations
-    // Compute updated brackets directly (setBrackets is async)
-    let updatedBrackets: Match[] = [];
-    setBrackets((prev) => {
-      updatedBrackets = prev.map((m) => {
-        const updatedMatch = roundMatches.find((rm) => rm.matchNumber === m.matchNumber);
-        return updatedMatch || m;
-      });
-      return updatedBrackets;
-    });
-
-    // Get bracket category for this round (already determined above)
-
-    // Generate next round if applicable - use updated brackets
-    await generateNextRoundIfComplete(updatedBrackets, targetTournamentId, round, bracket);
-    
-    // If Round 2 (upper bracket) is saved, generate Lower Bracket Round 2 from losers
-    if (round === 2 && bracketCategory === 'upper') {
-      // Use updated brackets to check for existing lower bracket Round 2
-      const lowerBracketRound2Exists = updatedBrackets.some((m) => m.round === 2 && m.bracketCategory === 'lower');
-      if (!lowerBracketRound2Exists) {
-        await generateLowerBracketFromRound2Losers(targetTournamentId, updatedBrackets);
-      }
-    }
-    
-    // If Lower Bracket Round 2 is saved, generate Lower Bracket Round 2 Semi-Final (match up the 2 winners)
-    if (round === 2 && bracketCategory === 'lower') {
-      // Check database first to see if semi-final already exists
-      const { data: existingSemiFinal } = await supabase
+      // Check if match exists in database
+      const { data: existingMatch, error: checkError } = await supabase
         .from('brackets')
         .select('match_number')
         .eq('tournament_id', targetTournamentId)
-        .eq('round', 2.5);
-      
-      // Check if semi-final already exists in state
-      const semiFinalExistsInState = updatedBrackets.some((m) => m.round === 2.5 && m.bracketCategory === 'lower');
-      
-      if (!semiFinalExistsInState && (!existingSemiFinal || existingSemiFinal.length === 0)) {
-        // Use the roundMatches that were just saved (they have the winners)
-        await generateLowerBracketRound2SemiFinal(targetTournamentId, roundMatches);
+        .eq('match_number', match.matchNumber)
+        .maybeSingle();
+
+      if (existingMatch && !checkError) {
+        // Match exists, update it
+        const { error: updateError } = await supabase
+          .from('brackets')
+          .update({ winner_id: winnerId })
+          .eq('tournament_id', targetTournamentId)
+          .eq('match_number', match.matchNumber);
+        if (updateError) {
+          console.error('Error updating match:', updateError);
+          saveErrors.push(`Error updating match ${match.matchNumber}: ${updateError.message}`);
+        }
       } else {
-        console.log('Lower Bracket Round 2 Semi-Final already exists, skipping generation');
-      }
-    }
-
-    // If Lower Bracket Round 2 Semi-Final is saved, check if Lower Bracket Round 3 is complete to generate Lower Bracket Finals
-    if (round === 2.5 && bracketCategory === 'lower') {
-      const lowerBracketRound3Match = updatedBrackets.find(
-        (m) => m.round === 3 && m.bracketCategory === 'lower',
-      );
-      if (lowerBracketRound3Match?.winner !== null) {
-        await generateLowerBracketFinal(targetTournamentId);
-      }
-    }
-
-    // If Round 3 (upper bracket) is saved, generate Lower Bracket Round 3 from losers and Round 4
-    if (round === 3 && bracketCategory === 'upper') {
-      await generateLowerBracketRound3FromRound3Losers(targetTournamentId, updatedBrackets);
-      await generateRound4FromRound3AndLowerBracket(targetTournamentId, updatedBrackets);
-    }
-
-    // If Lower Bracket Round 3 is saved, check if Lower Bracket Round 2 Semi-Final is complete to generate Lower Bracket Finals
-    if (round === 3 && bracketCategory === 'lower') {
-      const lowerBracketRound2SemiFinal = updatedBrackets.find(
-        (m) => m.round === 2.5 && m.bracketCategory === 'lower',
-      );
-      if (lowerBracketRound2SemiFinal?.winner !== null) {
-        await generateLowerBracketFinal(targetTournamentId);
-      }
-    }
-
-    // If Lower Bracket Final is saved, check if Round 4 is complete to generate Final Round
-    if (round === 3.5 && bracketCategory === 'lower') {
-      const round4Match = updatedBrackets.find(
-        (m) => m.round === 4 && m.bracketCategory === 'upper',
-      );
-      if (round4Match?.winner !== null) {
-        await generateFinalRoundFromRound4(targetTournamentId);
-      }
-    }
-
-    // If Round 4 is saved, check if Lower Bracket Final is complete to generate Final Round
-    if (round === 4 && bracketCategory === 'upper') {
-      const lowerBracketFinalMatch = updatedBrackets.find(
-        (m) => m.round === 3.5 && m.bracketCategory === 'lower',
-      );
-      if (lowerBracketFinalMatch?.winner !== null) {
-        await generateFinalRoundFromRound4(targetTournamentId);
-      }
-    }
-    
-    // Automatically collapse the round when it's saved
-    const roundKey = bracketCategory === 'lower' ? `lower-round-${round}` : `upper-round-${round}`;
-    setExpandedRounds((prev) => {
-      const newSet = new Set(prev);
-      newSet.delete(roundKey); // Remove from expanded set to collapse it
-      return newSet;
-    });
-
-    // Check if this is the Final Round (Championship) and show champion modal
-    if (round === 5 && bracketCategory === 'upper' && allHaveWinners) {
-      const finalMatch = roundMatches.find((m) => m.round === 5 && m.bracketCategory === 'upper');
-      if (finalMatch) {
-        const champion = finalMatch.winner === 'team1' ? finalMatch.team1 : finalMatch.team2;
-        if (champion) {
-          setChampionTeam(champion);
-          setChampionModalOpen(true);
-          setSaveSuccessModalOpen(false); // Don't show regular success modal, show champion modal instead
-          return; // Exit early to prevent showing success modal
+        // Match doesn't exist, insert it
+        const { error: insertError } = await supabase
+          .from('brackets')
+          .insert({
+            tournament_id: targetTournamentId,
+            team1_id: match.team1?.id || null,
+            team2_id: match.team2?.id || null,
+            round: match.round,
+            match_number: match.matchNumber,
+            winner_id: winnerId,
+          });
+        if (insertError) {
+          console.error('Error inserting match:', insertError);
+          saveErrors.push(`Error inserting match ${match.matchNumber}: ${insertError.message}`);
         }
       }
     }
+
+    // If there were any errors, show them and stop
+    if (saveErrors.length > 0) {
+      setSaveErrorMessage(`Failed to save some matches:\n${saveErrors.join('\n')}`);
+      setSaveErrorModalOpen(true);
+      setSaving(null);
+      return;
+    }
+
+    // Verify that all matches were saved successfully
+    const { data: savedMatches, error: verifyError } = await supabase
+      .from('brackets')
+      .select('match_number, winner_id')
+      .eq('tournament_id', targetTournamentId)
+      .in('match_number', roundMatches.map(m => m.matchNumber));
+
+    if (verifyError) {
+      setSaveErrorMessage(`Error verifying saved matches: ${verifyError.message}`);
+      setSaveErrorModalOpen(true);
+      setSaving(null);
+      return;
+    }
+
+    // Check if all matches were saved with correct winners
+    const savedMatchNumbers = new Set((savedMatches || []).map((m: any) => m.match_number));
+    const missingMatches = roundMatches.filter(m => !savedMatchNumbers.has(m.matchNumber));
+    
+    if (missingMatches.length > 0) {
+      setSaveErrorMessage(`Failed to save ${missingMatches.length} match(es). Please try again.`);
+      setSaveErrorModalOpen(true);
+      setSaving(null);
+      return;
+    }
+
+    // Update brackets state with saved winners
+    const updatedMatchesMap = new Map(roundMatches.map(rm => [rm.matchNumber, rm]));
+    const updatedBrackets: Match[] = brackets.map((m) => {
+      const updatedMatch = updatedMatchesMap.get(m.matchNumber);
+      return updatedMatch || m;
+    });
+    
+    setBrackets(updatedBrackets);
+
+    // Generate next round if Round 1 is saved (for 1-bracket system)
+    if (round === 1 && category === 'upper' && bracketType === '1-bracket') {
+      await generateNextRound(targetTournamentId, roundMatches, updatedBrackets);
+    }
+    
+    // Generate Round 3 from Round 2 winners and Lower Bracket Round 2 from Round 2 losers
+    if (round === 2 && category === 'upper' && bracketType === '1-bracket') {
+      // Generate Round 3 from winners first
+      await generateNextRound(targetTournamentId, roundMatches, updatedBrackets);
+      
+      // Generate Lower Bracket Round 2 from losers
+      // Note: generateLowerBracketRound2 queries the database directly for match numbers
+      await generateLowerBracketRound2(targetTournamentId, roundMatches, updatedBrackets);
+    }
+
+    // Generate Lower Bracket Round 2 Final (round 20) from Lower Bracket Round 2 winners
+    if (round === 2 && category === 'lower' && bracketType === '1-bracket') {
+      await generateLowerBracketRound2Final(targetTournamentId, roundMatches);
+    }
+    
+    // Generate Round 4 from Round 3 winners and Lower Bracket Round 3 from Round 3 losers
+    if (round === 3 && category === 'upper' && bracketType === '1-bracket') {
+      // Generate Round 4 from winners
+      await generateNextRound(targetTournamentId, roundMatches, updatedBrackets);
+      // Generate Lower Bracket Round 3 from losers
+      await generateLowerBracketRound3(targetTournamentId, roundMatches, updatedBrackets);
+    }
+    
+    // Generate Lower Bracket Final (round 30) from Lower Bracket Round 2 Final winner and Lower Bracket Round 3 winner
+    if ((round === 20 || round === 25) && category === 'lower' && bracketType === '1-bracket') {
+      await generateLowerBracketFinal(targetTournamentId, updatedBrackets);
+    }
+
+    // Generate Upper Bracket Semi-Final (Round 5) from Round 4 loser and Lower Bracket Final winner
+    // This can be triggered when either Round 4 (upper) or Lower Bracket Final (round 30, lower) is saved
+    if (
+      bracketType === '1-bracket' &&
+      ((round === 4 && category === 'upper') || (round === 30 && category === 'lower'))
+    ) {
+      await generateUpperSemiFromRound4AndLowerFinal(targetTournamentId, updatedBrackets);
+    }
+
+    // Generate Final Round (Round 6) from Round 4 winner and Upper Bracket Semi-Final (Round 5) winner
+    if (round === 5 && category === 'upper' && bracketType === '1-bracket') {
+      await generateFinalFromRound4AndSemi(targetTournamentId, updatedBrackets);
+    }
+
+    // After Final Game (Round 6) is saved, create Champion, 1st Runner Up, 2nd Runner Up
+    if (round === 6 && category === 'upper' && bracketType === '1-bracket') {
+      await createChampionsFromFinal(targetTournamentId, updatedBrackets);
+    }
+
+    // Reload brackets from database (this will load both Round 3 and Lower Bracket Round 2)
+    await loadBrackets(targetTournamentId, teams);
+    
+    // Collapse the round when it's saved
+    const roundKey = category === 'lower' ? `lower-round-${round}` : `upper-round-${round}`;
+    setExpandedRounds((prev) => {
+      const newSet = new Set(prev);
+      newSet.delete(roundKey);
+      // Auto-expand Round 2 if Round 1 was just saved
+      if (round === 1 && category === 'upper') {
+        newSet.add('upper-round-2');
+      }
+      // Auto-expand Round 3 and Lower Bracket Round 2 if Round 2 was just saved
+      if (round === 2 && category === 'upper') {
+        newSet.add('upper-round-3');
+        newSet.add('lower-round-2');
+      }
+      // Auto-expand Lower Bracket Round 2 Final if Lower Bracket Round 2 was just saved
+      if (round === 2 && category === 'lower') {
+        newSet.add('lower-round-20');
+      }
+      // Auto-expand Round 4 and Lower Bracket Round 3 if Round 3 was just saved
+      if (round === 3 && category === 'upper') {
+        newSet.add('upper-round-4');
+        newSet.add('lower-round-25');
+      }
+      // Auto-expand Lower Bracket Final if Lower Bracket Round 2 Final or Lower Bracket Round 3 was just saved
+      if ((round === 20 || round === 25) && category === 'lower') {
+        newSet.add('lower-round-30');
+      }
+      // Auto-expand Upper Semi (Round 5) if Round 4 or Lower Bracket Final was just saved
+      if ((round === 4 && category === 'upper') || (round === 30 && category === 'lower')) {
+        newSet.add('upper-round-5');
+      }
+      // Auto-expand Final (Round 6) if Round 5 was just saved
+      if (round === 5 && category === 'upper') {
+        newSet.add('upper-round-6');
+      }
+      return newSet;
+    });
     
     setSaveSuccessModalOpen(true);
-    setSaving(false);
+    setSaving(null);
   };
 
-  const generateNextRoundIfComplete = async (
-    currentBrackets: Match[],
+  // Generate next round from winners
+  const generateNextRound = async (
     targetTournamentId: string,
-    completedRound: number,
-    bracketNum: BracketNumber,
+    completedRoundMatches: Match[],
+    currentBrackets: Match[]
   ) => {
-    // Check the specific round and bracket that was just completed (only upper bracket)
-    const roundMatches = currentBrackets.filter(
-      (m) => m.round === completedRound && m.bracket === bracketNum && m.bracketCategory === 'upper',
-    );
-
-    // Check if next round already exists
-    const nextRound = completedRound + 1;
-    const nextRoundExists = currentBrackets.some(
-      (m) => m.round === nextRound && m.bracket === bracketNum && m.bracketCategory === 'upper',
-    );
-
-    if (nextRoundExists) return;
-
-    // Generate next round matches
-    const winners = roundMatches
+    // Get winners from completed round
+    const winners = completedRoundMatches
       .sort((a, b) => a.matchNumber - b.matchNumber)
       .map((m) => {
         const winnerTeam =
@@ -627,50 +717,66 @@ export default function BracketGeneratorPage() {
       })
       .filter((w) => w.team !== null);
 
-    // Only create next round if we have at least 2 winners
-    if (winners.length < 2) return;
+    console.log(`Generating Round 2 from ${winners.length} winners`);
 
-    // Remove duplicate teams (same team ID)
-    const uniqueWinners = winners.filter((w, index, self) => 
-      index === self.findIndex((t) => t.team?.id === w.team?.id)
-    );
-
-    if (uniqueWinners.length < 2) {
-      console.log('Not enough unique winners for next round');
+    // Need at least 2 winners to create matches
+    if (winners.length < 2) {
+      console.log('Not enough winners to generate next round');
       return;
     }
 
+    const nextRound = completedRoundMatches[0].round + 1;
+
+    // Check if next round already exists
+    const nextRoundExists = currentBrackets.some(
+      (m) => m.round === nextRound && m.bracket === 1 && m.bracketCategory === 'upper',
+    );
+
+    if (nextRoundExists) {
+      console.log(`Round ${nextRound} already exists`);
+      return;
+    }
+
+    // Check database
+    const { data: existingNextRound } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .eq('round', nextRound);
+
+    if (existingNextRound && existingNextRound.length > 0) {
+      console.log(`Round ${nextRound} already exists in database`);
+      return;
+    }
+
+    // Create matches by pairing winners
     const newMatches: Match[] = [];
     let nextMatchNumber = Math.max(...currentBrackets.map((m) => m.matchNumber), 0) + 1;
 
-    // Pair winners: match 1 winner vs match 2 winner, match 3 winner vs match 4 winner, etc.
-    for (let i = 0; i < uniqueWinners.length; i += 2) {
-      if (i + 1 < uniqueWinners.length) {
-        // Ensure teams are different
-        if (uniqueWinners[i].team?.id !== uniqueWinners[i + 1].team?.id) {
-          newMatches.push({
-            team1: uniqueWinners[i].team,
-            team2: uniqueWinners[i + 1].team,
-            round: nextRound,
-            matchNumber: nextMatchNumber++,
-            bracket: bracketNum,
-            bracketCategory: 'upper',
-            winner: null,
-            parentMatch1: uniqueWinners[i].parentMatch,
-            parentMatch2: uniqueWinners[i + 1].parentMatch,
-          });
-        }
+    for (let i = 0; i < winners.length; i += 2) {
+      if (i + 1 < winners.length) {
+        newMatches.push({
+          team1: winners[i].team,
+          team2: winners[i + 1].team,
+          round: nextRound,
+          matchNumber: nextMatchNumber++,
+          bracket: 1,
+          bracketCategory: 'upper',
+          winner: null,
+          parentMatch1: winners[i].parentMatch,
+          parentMatch2: winners[i + 1].parentMatch,
+        });
       } else {
         // Odd number of winners - bye to next round
         newMatches.push({
-          team1: uniqueWinners[i].team,
+          team1: winners[i].team,
           team2: null,
           round: nextRound,
           matchNumber: nextMatchNumber++,
-          bracket: bracketNum,
+          bracket: 1,
           bracketCategory: 'upper',
           winner: null,
-          parentMatch1: uniqueWinners[i].parentMatch,
+          parentMatch1: winners[i].parentMatch,
         });
       }
     }
@@ -680,53 +786,203 @@ export default function BracketGeneratorPage() {
       return;
     }
 
-    // Add new matches to state with duplicate check
-    setBrackets((prev) => {
-      // Check if any of these matches already exist
-      const existingMatchNumbers = prev.map((m) => m.matchNumber);
-      const matchesToAdd = newMatches.filter((m) => !existingMatchNumbers.includes(m.matchNumber));
-      
-      // Also check for duplicate round/bracket combinations
-      const existingRounds = prev.filter(
-        (m) => m.round === nextRound && m.bracket === bracketNum && m.bracketCategory === 'upper'
-      );
-      if (existingRounds.length > 0) {
-        return prev;
+    // Save new matches to database
+    const bracketData = newMatches.map((m) => ({
+      tournament_id: targetTournamentId,
+      team1_id: m.team1?.id || null,
+      team2_id: m.team2?.id || null,
+      round: m.round,
+      match_number: m.matchNumber,
+      winner_id: null,
+    }));
+
+    const { error: insertError } = await supabase.from('brackets').insert(bracketData);
+    if (insertError) {
+      console.error('Error inserting Round 2 matches:', insertError);
+      return;
+    }
+
+    console.log(`Successfully created ${newMatches.length} matches for Round ${nextRound}`);
+  };
+
+  // Generate Lower Bracket Round 2 from Round 2 losers
+  const generateLowerBracketRound2 = async (
+    targetTournamentId: string,
+    round2Matches: Match[],
+    currentBrackets: Match[]
+  ) => {
+    // Get losers from Round 2
+    const losers = round2Matches
+      .sort((a, b) => a.matchNumber - b.matchNumber)
+      .map((m) => {
+        const loserTeam =
+          m.winner === 'team1' ? m.team2 : m.winner === 'team2' ? m.team1 : null;
+        return { team: loserTeam, parentMatch: m.matchNumber };
+      })
+      .filter((l) => l.team !== null);
+
+    console.log(`Generating Lower Bracket Round 2 from ${losers.length} losers`);
+    console.log('Round 2 matches:', round2Matches.map(m => ({
+      matchNumber: m.matchNumber,
+      winner: m.winner,
+      team1: m.team1?.team_name,
+      team2: m.team2?.team_name
+    })));
+    console.log('Losers:', losers.map(l => l.team?.team_name));
+
+    // Need exactly 4 losers for Lower Bracket Round 2
+    if (losers.length !== 4) {
+      console.log(`Expected 4 losers, got ${losers.length}`);
+      return;
+    }
+
+    // Check if Lower Bracket Round 2 already exists
+    const lowerRound2Exists = currentBrackets.some(
+      (m) => m.round === 2 && m.bracketCategory === 'lower',
+    );
+
+    if (lowerRound2Exists) {
+      console.log('Lower Bracket Round 2 already exists');
+      return;
+    }
+
+    // Check database - count Round 2 matches
+    const { data: existingRound2 } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .eq('round', 2);
+
+    // If we have more than 4 Round 2 matches, lower bracket already exists
+    if (existingRound2 && existingRound2.length > 4) {
+      console.log('Lower Bracket Round 2 already exists in database');
+      return;
+    }
+
+    // Create Lower Bracket Round 2 matches (2 matches: Loser 1 vs Loser 2, Loser 3 vs Loser 4)
+    const newMatches: Match[] = [];
+    
+    // Get the highest match number from all brackets (including any Round 3 matches that might have been created)
+    // We need to check the database to get the actual highest match number
+    const { data: allMatches } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .order('match_number', { ascending: false })
+      .limit(1);
+    
+    const highestMatchNumber = allMatches && allMatches.length > 0 
+      ? allMatches[0].match_number 
+      : Math.max(...currentBrackets.map((m) => m.matchNumber), 0);
+    
+    let nextMatchNumber = highestMatchNumber + 1;
+
+    console.log(`Creating Lower Bracket Round 2 matches starting from match number ${nextMatchNumber}`);
+    console.log('Losers:', losers.map(l => l.team?.team_name));
+
+    // Match 1: Loser from Round 2 Match 1 vs Loser from Round 2 Match 2
+    // Match 2: Loser from Round 2 Match 3 vs Loser from Round 2 Match 4
+    for (let i = 0; i < losers.length; i += 2) {
+      if (i + 1 < losers.length && losers[i].team && losers[i + 1].team) {
+        const matchNumber = nextMatchNumber++;
+        newMatches.push({
+          team1: losers[i].team,
+          team2: losers[i + 1].team,
+          round: 2, // Lower Bracket Round 2
+          matchNumber: matchNumber,
+          bracket: 1,
+          bracketCategory: 'lower',
+          winner: null,
+          parentMatch1: losers[i].parentMatch,
+          parentMatch2: losers[i + 1].parentMatch,
+        });
+        console.log(`Created Lower Bracket Round 2 match ${matchNumber}: ${losers[i].team?.team_name} vs ${losers[i + 1].team?.team_name}`);
       }
-      
-      return [...prev, ...matchesToAdd];
-    });
+    }
+
+    if (newMatches.length === 0) {
+      console.log('No new matches to create for Lower Bracket Round 2');
+      return;
+    }
 
     // Save new matches to database
-    const matchesToSave = newMatches.filter((m) => {
-      // Check if match already exists in database by checking current brackets
-      return !currentBrackets.some(
-        (existing) => existing.round === m.round && 
-                     existing.bracket === m.bracket && 
-                     existing.bracketCategory === m.bracketCategory &&
-                     existing.team1?.id === m.team1?.id &&
-                     existing.team2?.id === m.team2?.id
+    const bracketData = newMatches.map((m) => ({
+      tournament_id: targetTournamentId,
+      team1_id: m.team1?.id || null,
+      team2_id: m.team2?.id || null,
+      round: m.round,
+      match_number: m.matchNumber,
+      winner_id: null,
+    }));
+
+    console.log(`Inserting ${bracketData.length} Lower Bracket Round 2 matches into database:`, bracketData);
+    
+    const { error: insertError, data: insertedData } = await supabase.from('brackets').insert(bracketData).select();
+    if (insertError) {
+      console.error('Error inserting Lower Bracket Round 2 matches:', insertError);
+      return;
+    }
+
+    console.log(`Successfully created ${newMatches.length} matches for Lower Bracket Round 2`);
+    console.log('Inserted matches:', insertedData);
+  };
+
+  const cancelRound = async (round: number, bracket: BracketNumber, bracketCategory?: BracketCategory) => {
+    // Determine bracket category if not provided
+    let category: BracketCategory = bracketCategory || 'upper';
+    if (!bracketCategory) {
+      const matches = brackets.filter((m) => m.round === round && m.bracket === bracket);
+      if (matches.length > 0) {
+        category = matches[0].bracketCategory || 'upper';
+      }
+    }
+
+    const roundMatches = brackets.filter(
+      (m) => m.round === round && m.bracket === bracket && m.bracketCategory === category,
+    );
+
+    if (roundMatches.length === 0) return;
+
+    let targetTournamentId = tournamentId;
+    if (!targetTournamentId) {
+      // If no tournament exists, just clear winners from state
+      setBrackets((prev) =>
+        prev.map((m) =>
+          m.round === round && m.bracket === bracket && m.bracketCategory === category ? { ...m, winner: null } : m,
+        ),
       );
-    });
+      return;
+    }
 
-    if (matchesToSave.length > 0) {
-      const bracketData = matchesToSave.map((m) => ({
-        tournament_id: targetTournamentId,
-        team1_id: m.team1?.id || null,
-        team2_id: m.team2?.id || null,
-        round: m.round,
-        match_number: m.matchNumber,
-        winner_id: null,
-      }));
-
-      await supabase.from('brackets').insert(bracketData);
+    // Clear winners in database for the current round
+    for (const match of roundMatches) {
+      await supabase
+        .from('brackets')
+        .update({ winner_id: null })
+        .eq('tournament_id', targetTournamentId)
+        .eq('match_number', match.matchNumber);
+    }
+    
+    // Reload brackets from database
+    if (targetTournamentId) {
+      await loadBrackets(targetTournamentId, teams);
     }
   };
 
-  // Generate Lower Bracket Round 2 from Round 2 losers (4 teams → 2 matches → 1 match → 1 winner)
+  // Remove all commented out generation functions
+  /*
   const generateLowerBracketFromRound2Losers = async (targetTournamentId: string, currentBrackets?: Match[]) => {
-    // Use provided brackets or current state
-    const bracketsToUse = currentBrackets || brackets;
+    const { data: existingLowerRound2 } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .eq('round', 2);
+    
+    // Count how many Round 2 matches exist - if more than 4, lower bracket already exists
+    if (existingLowerRound2 && existingLowerRound2.length > 4) {
+      console.log('Lower Bracket Round 2 already exists in database');
+      return;
+    }
     
     // Check if lower bracket Round 2 already exists in state
     const lowerBracketRound2ExistsInState = bracketsToUse.some((m) => m.round === 2 && m.bracketCategory === 'lower');
@@ -780,38 +1036,7 @@ export default function BracketGeneratorPage() {
 
     if (newMatches.length === 0) return;
 
-    // Add new matches to state with duplicate check
-    setBrackets((prev) => {
-      // Check for duplicate round/bracket/category combinations first
-      const existingLowerRound2 = prev.filter(
-        (m) => m.round === 2 && m.bracketCategory === 'lower'
-      );
-      if (existingLowerRound2.length > 0) {
-        console.log('Lower Bracket Round 2 already exists in state, not adding');
-        return prev;
-      }
-      
-      // Check if any of these matches already exist by team combinations
-      const matchesToAdd = newMatches.filter((newMatch) => {
-        const exists = prev.some((existing) => 
-          existing.round === 2 &&
-          existing.bracketCategory === 'lower' &&
-          ((existing.team1?.id === newMatch.team1?.id && existing.team2?.id === newMatch.team2?.id) ||
-           (existing.team1?.id === newMatch.team2?.id && existing.team2?.id === newMatch.team1?.id))
-        );
-        return !exists;
-      });
-      
-      if (matchesToAdd.length === 0) {
-        console.log('All Lower Bracket Round 2 matches already exist in state');
-        return prev;
-      }
-      
-      return [...prev, ...matchesToAdd];
-    });
-
-    // Save new matches to database - check for duplicates first
-    // Check if lower bracket Round 2 matches already exist by checking team combinations
+    // Check database first to see if lower bracket Round 2 already exists
     const { data: allRound2Matches } = await supabase
       .from('brackets')
       .select('match_number, team1_id, team2_id')
@@ -843,7 +1068,12 @@ export default function BracketGeneratorPage() {
           winner_id: null,
         }));
 
-        await supabase.from('brackets').insert(bracketData);
+        const { error: insertError } = await supabase.from('brackets').insert(bracketData);
+        if (insertError) {
+          console.error('Error inserting Lower Bracket Round 2:', insertError);
+          return;
+        }
+        console.log(`Successfully inserted ${matchesToSave.length} Lower Bracket Round 2 matches`);
       }
     } else {
       // No existing Round 2 matches, save all new matches
@@ -856,79 +1086,629 @@ export default function BracketGeneratorPage() {
         winner_id: null,
       }));
 
-      await supabase.from('brackets').insert(bracketData);
+      const { error: insertError } = await supabase.from('brackets').insert(bracketData);
+      if (insertError) {
+        console.error('Error inserting Lower Bracket Round 2:', insertError);
+        return;
+      }
+      console.log(`Successfully inserted ${newMatches.length} Lower Bracket Round 2 matches`);
     }
-  };
 
-  // Generate Lower Bracket Round 2 Semi-Final (2 winners → 1 match → 1 winner)
-  const generateLowerBracketRound2SemiFinal = async (targetTournamentId: string, round2Matches?: Match[]) => {
+    // Don't add to state here - let loadBrackets handle it after database insert
+  };
+  */
+
+  const generateLowerBracketRound2Final = async (targetTournamentId: string, round2Matches?: Match[]) => {
     // If round2Matches is provided (from saveRound), use those; otherwise get from brackets state
+    // IMPORTANT: round2Matches passed from saveRound are already filtered to Lower Bracket Round 2
+    // If not provided, filter to get only Lower Bracket Round 2 matches
     const lowerBracketRound2Matches = round2Matches || brackets.filter(
       (m) => m.round === 2 && m.bracketCategory === 'lower',
     );
+    
+    console.log('generateLowerBracketRound2SemiFinal - Input matches:', lowerBracketRound2Matches.length);
+    console.log('Matches details:', lowerBracketRound2Matches.map(m => ({
+      matchNumber: m.matchNumber,
+      round: m.round,
+      bracketCategory: m.bracketCategory,
+      winner: m.winner,
+      team1: m.team1?.team_name,
+      team2: m.team2?.team_name
+    })));
 
     // Get winners from Lower Bracket Round 2
-    const winners = lowerBracketRound2Matches
+    // Make sure we only process Lower Bracket Round 2 matches (round 2, lower category)
+    const validLowerBracketRound2Matches = lowerBracketRound2Matches.filter(
+      (m) => m.round === 2 && m.bracketCategory === 'lower'
+    );
+    
+    console.log('generateLowerBracketRound2SemiFinal - Valid Lower Bracket Round 2 matches:', validLowerBracketRound2Matches.length);
+    
+    const winners = validLowerBracketRound2Matches
       .filter((m) => m.winner !== null)
       .map((m) => (m.winner === 'team1' ? m.team1 : m.winner === 'team2' ? m.team2 : null))
       .filter((t): t is Team => t !== null);
 
+    console.log('Winners from Lower Bracket Round 2:', winners.length, winners.map(w => w.team_name));
+
     // Need 2 winners for semi-final
     if (winners.length !== 2) {
-      console.log('Not enough winners in Lower Bracket Round 2:', winners.length, 'matches:', lowerBracketRound2Matches.length);
+      console.log('Not enough winners in Lower Bracket Round 2:', winners.length, 'matches:', validLowerBracketRound2Matches.length);
+      console.log('Expected 2 winners, got:', winners.length);
       return;
     }
 
-    // Check if semi-final already exists before creating
+    // Check if semi-final already exists in database first
+    // Note: bracket_category might not be a column, so we'll check by round and match numbers
+    const { data: existingSemiFinal } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .eq('round', 20);
+    
+    if (existingSemiFinal && existingSemiFinal.length > 0) {
+      console.log('Lower Bracket Round 2 Semi-Final already exists in database');
+      return;
+    }
+
+    // Check if semi-final already exists in state
     const currentBrackets = brackets;
-    const semiFinalExists = currentBrackets.some((m) => m.round === 2.5 && m.bracketCategory === 'lower');
+    const semiFinalExists = currentBrackets.some((m) => m.round === 20 && m.bracketCategory === 'lower');
     if (semiFinalExists) {
-      console.log('Lower Bracket Round 2 Semi-Final already exists');
+      console.log('Lower Bracket Round 2 Semi-Final already exists in state');
       return;
     }
 
-    // Create semi-final match
-    const nextMatchNumber = Math.max(...currentBrackets.map((m) => m.matchNumber), 0) + 1;
+    // Get the highest match number from database to ensure we don't conflict
+    const { data: allMatches } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .order('match_number', { ascending: false })
+      .limit(1);
+    
+    const highestMatchNumber = allMatches && allMatches.length > 0 
+      ? allMatches[0].match_number 
+      : Math.max(...currentBrackets.map((m) => m.matchNumber), 0);
+    
+    const nextMatchNumber = highestMatchNumber + 1;
     const semiFinalMatch: Match = {
       team1: winners[0],
       team2: winners[1],
-      round: 2.5, // Lower Bracket Round 2 Semi-Final
+      round: 20, // Lower Bracket Round 2 Final
       matchNumber: nextMatchNumber,
       bracket: 1,
       bracketCategory: 'lower',
       winner: null,
     };
 
-    // Add to state
-    setBrackets((prev) => {
-      // Double-check it doesn't exist in the updated state
-      const exists = prev.some((m) => m.round === 2.5 && m.bracketCategory === 'lower');
-      if (exists) return prev;
-      return [...prev, semiFinalMatch];
-    });
-
-    // Save to database
+    // Save to database first
     const bracketData = {
       tournament_id: targetTournamentId,
       team1_id: semiFinalMatch.team1?.id || null,
       team2_id: semiFinalMatch.team2?.id || null,
-      round: 2.5,
+      round: 20,
       match_number: semiFinalMatch.matchNumber,
       winner_id: null,
     };
 
-    await supabase.from('brackets').insert(bracketData);
+    const { error: insertError } = await supabase.from('brackets').insert(bracketData);
+    if (insertError) {
+      console.error('Error inserting Lower Bracket Round 2 Semi-Final:', insertError);
+      return;
+    }
+
+    // Don't add to state here - let loadBrackets handle it after database insert
+    console.log('Lower Bracket Round 2 Final saved to database, will be loaded by loadBrackets');
   };
 
-  // Generate Lower Bracket Round 3 from Round 3 losers (2 teams → 1 match → 1 winner)
+  // Generate Lower Bracket Round 3 from Round 3 losers
+  const generateLowerBracketRound3 = async (
+    targetTournamentId: string,
+    round3Matches: Match[],
+    currentBrackets: Match[]
+  ) => {
+    // Get losers from Round 3 (upper bracket)
+    const losers = round3Matches
+      .sort((a, b) => a.matchNumber - b.matchNumber)
+      .map((m) => {
+        const loserTeam =
+          m.winner === 'team1' ? m.team2 : m.winner === 'team2' ? m.team1 : null;
+        return { team: loserTeam, parentMatch: m.matchNumber };
+      })
+      .filter((l) => l.team !== null);
+
+    console.log(`Generating Lower Bracket Round 3 from ${losers.length} losers`);
+
+    // Need exactly 2 losers for Lower Bracket Round 3
+    if (losers.length !== 2) {
+      console.log(`Expected 2 losers, got ${losers.length}`);
+      return;
+    }
+
+    // Check if Lower Bracket Round 3 already exists
+    const lowerRound3Exists = currentBrackets.some(
+      (m) => m.round === 25 && m.bracketCategory === 'lower',
+    );
+
+    if (lowerRound3Exists) {
+      console.log('Lower Bracket Round 3 already exists');
+      return;
+    }
+
+    // Check database
+    const { data: existingLowerRound3 } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .eq('round', 25);
+
+    if (existingLowerRound3 && existingLowerRound3.length > 0) {
+      console.log('Lower Bracket Round 3 already exists in database');
+      return;
+    }
+
+    // Get the highest match number from database
+    const { data: allMatches } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .order('match_number', { ascending: false })
+      .limit(1);
+    
+    const highestMatchNumber = allMatches && allMatches.length > 0 
+      ? allMatches[0].match_number 
+      : Math.max(...currentBrackets.map((m) => m.matchNumber), 0);
+    
+    const nextMatchNumber = highestMatchNumber + 1;
+
+    // Create Lower Bracket Round 3 match (1 match: Loser 1 vs Loser 2)
+    const newMatch: Match = {
+      team1: losers[0].team,
+      team2: losers[1].team,
+      round: 25, // Lower Bracket Round 3
+      matchNumber: nextMatchNumber,
+      bracket: 1,
+      bracketCategory: 'lower',
+      winner: null,
+      parentMatch1: losers[0].parentMatch,
+      parentMatch2: losers[1].parentMatch,
+    };
+
+    // Save to database
+    const bracketData = {
+      tournament_id: targetTournamentId,
+      team1_id: newMatch.team1?.id || null,
+      team2_id: newMatch.team2?.id || null,
+      round: 25,
+      match_number: newMatch.matchNumber,
+      winner_id: null,
+    };
+
+    const { error: insertError } = await supabase.from('brackets').insert(bracketData);
+    if (insertError) {
+      console.error('Error inserting Lower Bracket Round 3:', insertError);
+      return;
+    }
+
+    console.log('Lower Bracket Round 3 saved to database, will be loaded by loadBrackets');
+  };
+
+  // Generate Lower Bracket Final (round 30) from Lower Bracket Round 2 Final winner and Lower Bracket Round 3 winner
+  const generateLowerBracketFinal = async (
+    targetTournamentId: string,
+    currentBrackets: Match[]
+  ) => {
+    // Check if Lower Bracket Final already exists
+    const { data: existingFinal } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .eq('round', 30);
+    
+    if (existingFinal && existingFinal.length > 0) {
+      console.log('Lower Bracket Final already exists in database');
+      return;
+    }
+    
+    const lowerBracketFinalExists = currentBrackets.some((m) => m.round === 30 && m.bracketCategory === 'lower');
+    if (lowerBracketFinalExists) {
+      console.log('Lower Bracket Final already exists in state');
+      return;
+    }
+
+    // Get Lower Bracket Round 2 Final winner (round 20)
+    const lowerBracketRound2Final = currentBrackets.find(
+      (m) => m.round === 20 && m.bracketCategory === 'lower',
+    );
+    const lowerBracketRound2Winner = lowerBracketRound2Final?.winner === 'team1'
+      ? lowerBracketRound2Final.team1
+      : lowerBracketRound2Final?.winner === 'team2'
+        ? lowerBracketRound2Final.team2
+        : null;
+
+    // Get Lower Bracket Round 3 winner (round 25)
+    const lowerBracketRound3Match = currentBrackets.find(
+      (m) => m.round === 25 && m.bracketCategory === 'lower',
+    );
+    const lowerBracketRound3Winner = lowerBracketRound3Match?.winner === 'team1'
+      ? lowerBracketRound3Match.team1
+      : lowerBracketRound3Match?.winner === 'team2'
+        ? lowerBracketRound3Match.team2
+        : null;
+
+    // Need both winners
+    if (!lowerBracketRound2Winner || !lowerBracketRound3Winner) {
+      console.log('Waiting for both Lower Bracket Round 2 Final and Lower Bracket Round 3 to have winners');
+      return;
+    }
+
+    // Get the highest match number from database
+    const { data: allMatches } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .order('match_number', { ascending: false })
+      .limit(1);
+    
+    const highestMatchNumber = allMatches && allMatches.length > 0 
+      ? allMatches[0].match_number 
+      : Math.max(...currentBrackets.map((m) => m.matchNumber), 0);
+    
+    const nextMatchNumber = highestMatchNumber + 1;
+
+    // Create Lower Bracket Final match
+    const lowerBracketFinalMatch: Match = {
+      team1: lowerBracketRound2Winner,
+      team2: lowerBracketRound3Winner,
+      round: 30, // Lower Bracket Final
+      matchNumber: nextMatchNumber,
+      bracket: 1,
+      bracketCategory: 'lower',
+      winner: null,
+    };
+
+    // Save to database
+    const bracketData = {
+      tournament_id: targetTournamentId,
+      team1_id: lowerBracketFinalMatch.team1?.id || null,
+      team2_id: lowerBracketFinalMatch.team2?.id || null,
+      round: 30,
+      match_number: lowerBracketFinalMatch.matchNumber,
+      winner_id: null,
+    };
+
+    const { error: insertError } = await supabase.from('brackets').insert(bracketData);
+    if (insertError) {
+      console.error('Error inserting Lower Bracket Final:', insertError);
+      return;
+    }
+
+    console.log('Lower Bracket Final saved to database, will be loaded by loadBrackets');
+  };
+
+  // Generate Upper Bracket Semi-Final (Round 5) from Round 4 loser and Lower Bracket Final (round 30) winner
+  const generateUpperSemiFromRound4AndLowerFinal = async (
+    targetTournamentId: string,
+    currentBrackets: Match[]
+  ) => {
+    // Find Round 4 (upper) match
+    const round4Match = currentBrackets.find(
+      (m) => m.round === 4 && m.bracket === 1 && m.bracketCategory === 'upper',
+    );
+
+    // Find Lower Bracket Final (round 30) match
+    const lowerFinalMatch = currentBrackets.find(
+      (m) => m.round === 30 && m.bracketCategory === 'lower',
+    );
+
+    if (!round4Match || !lowerFinalMatch) {
+      console.log('Cannot generate Upper Semi: missing Round 4 or Lower Bracket Final match');
+      return;
+    }
+
+    if (!round4Match.winner || !lowerFinalMatch.winner) {
+      console.log('Cannot generate Upper Semi: winners not decided yet');
+      return;
+    }
+
+    // Determine Round 4 loser
+    const round4Loser =
+      round4Match.winner === 'team1' ? round4Match.team2 : round4Match.team1;
+
+    if (!round4Loser) {
+      console.log('Cannot generate Upper Semi: Round 4 loser not found');
+      return;
+    }
+
+    // Determine Lower Bracket Final winner
+    const lowerFinalWinner =
+      lowerFinalMatch.winner === 'team1' ? lowerFinalMatch.team1 :
+      lowerFinalMatch.winner === 'team2' ? lowerFinalMatch.team2 :
+      null;
+
+    if (!lowerFinalWinner) {
+      console.log('Cannot generate Upper Semi: Lower Bracket Final winner not found');
+      return;
+    }
+
+    // Check if Round 5 (Upper Semi) already exists
+    const upperSemiExists = currentBrackets.some(
+      (m) => m.round === 5 && m.bracket === 1 && m.bracketCategory === 'upper',
+    );
+    if (upperSemiExists) {
+      console.log('Upper Bracket Semi-Final (Round 5) already exists');
+      return;
+    }
+
+    // Check database for existing Round 5
+    const { data: existingSemi } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .eq('round', 5);
+    if (existingSemi && existingSemi.length > 0) {
+      console.log('Upper Bracket Semi-Final (Round 5) already exists in database');
+      return;
+    }
+
+    // Get highest match number to continue numbering
+    const { data: allMatches } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .order('match_number', { ascending: false })
+      .limit(1);
+
+    const highestMatchNumber = allMatches && allMatches.length > 0
+      ? allMatches[0].match_number
+      : Math.max(...currentBrackets.map((m) => m.matchNumber), 0);
+
+    const nextMatchNumber = highestMatchNumber + 1;
+
+    // Create Upper Bracket Semi-Final match (Round 5)
+    const semiMatch: Match = {
+      team1: lowerFinalWinner,
+      team2: round4Loser,
+      round: 5,
+      matchNumber: nextMatchNumber,
+      bracket: 1,
+      bracketCategory: 'upper',
+      winner: null,
+      parentMatch1: lowerFinalMatch.matchNumber,
+      parentMatch2: round4Match.matchNumber,
+    };
+
+    const bracketData = {
+      tournament_id: targetTournamentId,
+      team1_id: semiMatch.team1?.id || null,
+      team2_id: semiMatch.team2?.id || null,
+      round: semiMatch.round,
+      match_number: semiMatch.matchNumber,
+      winner_id: null,
+    };
+
+    const { error: insertError } = await supabase.from('brackets').insert(bracketData);
+    if (insertError) {
+      console.error('Error inserting Upper Bracket Semi-Final (Round 5):', insertError);
+      return;
+    }
+
+    console.log('Upper Bracket Semi-Final (Round 5) saved to database, will be loaded by loadBrackets');
+  };
+
+  // Generate Final Round (Round 6) from Round 4 winner and Upper Bracket Semi-Final (Round 5) winner
+  const generateFinalFromRound4AndSemi = async (
+    targetTournamentId: string,
+    currentBrackets: Match[]
+  ) => {
+    // Find Round 4 (upper) match
+    const round4Match = currentBrackets.find(
+      (m) => m.round === 4 && m.bracket === 1 && m.bracketCategory === 'upper',
+    );
+
+    // Find Round 5 (upper semi) match
+    const semiMatch = currentBrackets.find(
+      (m) => m.round === 5 && m.bracket === 1 && m.bracketCategory === 'upper',
+    );
+
+    if (!round4Match || !semiMatch) {
+      console.log('Cannot generate Final: missing Round 4 or Round 5 match');
+      return;
+    }
+
+    if (!round4Match.winner || !semiMatch.winner) {
+      console.log('Cannot generate Final: winners not decided yet');
+      return;
+    }
+
+    const round4Winner =
+      round4Match.winner === 'team1' ? round4Match.team1 : round4Match.team2;
+    const semiWinner =
+      semiMatch.winner === 'team1' ? semiMatch.team1 : semiMatch.team2;
+
+    if (!round4Winner || !semiWinner) {
+      console.log('Cannot generate Final: winners not found');
+      return;
+    }
+
+    // Check if Final Round (Round 6) already exists
+    const finalExists = currentBrackets.some(
+      (m) => m.round === 6 && m.bracket === 1 && m.bracketCategory === 'upper',
+    );
+    if (finalExists) {
+      console.log('Final Round (Round 6) already exists');
+      return;
+    }
+
+    const { data: existingFinal } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .eq('round', 6);
+    if (existingFinal && existingFinal.length > 0) {
+      console.log('Final Round (Round 6) already exists in database');
+      return;
+    }
+
+    // Get highest match number
+    const { data: allMatches } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .order('match_number', { ascending: false })
+      .limit(1);
+
+    const highestMatchNumber = allMatches && allMatches.length > 0
+      ? allMatches[0].match_number
+      : Math.max(...currentBrackets.map((m) => m.matchNumber), 0);
+
+    const nextMatchNumber = highestMatchNumber + 1;
+
+    const finalMatch: Match = {
+      team1: round4Winner,
+      team2: semiWinner,
+      round: 6,
+      matchNumber: nextMatchNumber,
+      bracket: 1,
+      bracketCategory: 'upper',
+      winner: null,
+      parentMatch1: round4Match.matchNumber,
+      parentMatch2: semiMatch.matchNumber,
+    };
+
+    const bracketData = {
+      tournament_id: targetTournamentId,
+      team1_id: finalMatch.team1?.id || null,
+      team2_id: finalMatch.team2?.id || null,
+      round: finalMatch.round,
+      match_number: finalMatch.matchNumber,
+      winner_id: null,
+    };
+
+    const { error: insertError } = await supabase.from('brackets').insert(bracketData);
+    if (insertError) {
+      console.error('Error inserting Final Round (Round 6):', insertError);
+      return;
+    }
+
+    console.log('Final Round (Round 6) saved to database, will be loaded by loadBrackets');
+  };
+
+  // Create Champion, 1st Runner Up, 2nd Runner Up from Final Game (Round 6) and Semi (Round 5)
+  const createChampionsFromFinal = async (
+    targetTournamentId: string,
+    currentBrackets: Match[]
+  ) => {
+    // Find Final Game (Round 6, upper)
+    const finalMatch = currentBrackets.find(
+      (m) => m.round === 6 && m.bracket === 1 && m.bracketCategory === 'upper',
+    );
+
+    // Find Semi (Round 5, upper)
+    const semiMatch = currentBrackets.find(
+      (m) => m.round === 5 && m.bracket === 1 && m.bracketCategory === 'upper',
+    );
+
+    if (!finalMatch || !semiMatch) {
+      console.log('Cannot create champions: missing final or semi match');
+      return;
+    }
+
+    if (!finalMatch.winner || !semiMatch.winner) {
+      console.log('Cannot create champions: winners not decided yet');
+      return;
+    }
+
+    const championTeam =
+      finalMatch.winner === 'team1' ? finalMatch.team1 : finalMatch.team2;
+    const firstRunnerUpTeam =
+      finalMatch.winner === 'team1' ? finalMatch.team2 : finalMatch.team1;
+    const secondRunnerUpTeam =
+      semiMatch.winner === 'team1' ? semiMatch.team2 : semiMatch.team1;
+
+    if (!championTeam || !firstRunnerUpTeam || !secondRunnerUpTeam) {
+      console.log('Cannot create champions: some teams not found');
+      return;
+    }
+
+    // Simple ISO week calculation
+    const getISOWeek = (date: Date) => {
+      const tmp = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      const dayNum = tmp.getUTCDay() || 7;
+      tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+      return Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    };
+
+    const now = new Date();
+    const week = getISOWeek(now);
+    const year = now.getFullYear();
+
+    const championsPayload = [
+      {
+        team_id: championTeam.id,
+        tournament_id: targetTournamentId,
+        position: 1, // Champion
+        week,
+        year,
+      },
+      {
+        team_id: firstRunnerUpTeam.id,
+        tournament_id: targetTournamentId,
+        position: 2, // 1st Runner Up
+        week,
+        year,
+      },
+      {
+        team_id: secondRunnerUpTeam.id,
+        tournament_id: targetTournamentId,
+        position: 3, // 2nd Runner Up
+        week,
+        year,
+      },
+    ];
+
+    const { error: championsError } = await supabase
+      .from('champions')
+      .insert(championsPayload);
+
+    if (championsError) {
+      console.error('Error inserting champions:', championsError);
+      return;
+    }
+
+    console.log('Champions created successfully');
+    setChampionTeam(championTeam);
+    setChampionModalOpen(true);
+  };
+
+  /*
   const generateLowerBracketRound3FromRound3Losers = async (targetTournamentId: string, currentBrackets?: Match[]) => {
     // Use provided brackets or current state
     const bracketsToUse = currentBrackets || brackets;
     
-    // Check if lower bracket Round 3 already exists
+    // Check database first to see if lower bracket Round 3 already exists
+    const { data: existingRound3 } = await supabase
+      .from('brackets')
+      .select('match_number, round')
+      .eq('tournament_id', targetTournamentId)
+      .eq('round', 3);
+    
+    // Count how many Round 3 matches exist - if we have upper bracket Round 3 (2 matches) + lower bracket (1 match) = 3 total
+    // Upper bracket Round 3 should have 2 matches, so if we have 3 or more, lower bracket exists
+    const upperRound3Count = bracketsToUse.filter((m) => m.round === 3 && m.bracketCategory === 'upper').length;
+    const totalRound3InDb = existingRound3?.length || 0;
+    
+    if (upperRound3Count >= 2 && totalRound3InDb >= 3) {
+      console.log('Lower Bracket Round 3 already exists in database');
+      return;
+    }
+    
+    // Check if lower bracket Round 3 already exists in state
     const lowerBracketRound3Exists = bracketsToUse.some((m) => m.round === 3 && m.bracketCategory === 'lower');
     if (lowerBracketRound3Exists) {
-      console.log('Lower Bracket Round 3 already exists');
+      console.log('Lower Bracket Round 3 already exists in state');
       return;
     }
 
@@ -962,22 +1742,7 @@ export default function BracketGeneratorPage() {
       winner: null,
     };
 
-    // Add match to state with duplicate check
-    setBrackets((prev) => {
-      const exists = prev.some((m) => 
-        m.round === 3 && 
-        m.bracketCategory === 'lower' &&
-        m.team1?.id === lowerBracketRound3Match.team1?.id &&
-        m.team2?.id === lowerBracketRound3Match.team2?.id
-      );
-      if (exists) {
-        console.log('Lower Bracket Round 3 already exists in state');
-        return prev;
-      }
-      return [...prev, lowerBracketRound3Match];
-    });
-
-    // Save to database - check for duplicates first
+    // Check database first to see if lower bracket Round 3 already exists
     const { data: existingLowerRound3 } = await supabase
       .from('brackets')
       .select('match_number, team1_id, team2_id')
@@ -990,40 +1755,68 @@ export default function BracketGeneratorPage() {
       (m.team1_id === lowerBracketRound3Match.team2?.id && m.team2_id === lowerBracketRound3Match.team1?.id)
     );
 
-    if (!lowerRound3Exists) {
-      const bracketData = {
-        tournament_id: targetTournamentId,
-        team1_id: lowerBracketRound3Match.team1?.id || null,
-        team2_id: lowerBracketRound3Match.team2?.id || null,
-        round: 3,
-        match_number: lowerBracketRound3Match.matchNumber,
-        winner_id: null,
-      };
-
-      await supabase.from('brackets').insert(bracketData);
-    } else {
+    if (lowerRound3Exists) {
       console.log('Lower Bracket Round 3 already exists in database');
+      return;
     }
+
+    // Save to database
+    const bracketData = {
+      tournament_id: targetTournamentId,
+      team1_id: lowerBracketRound3Match.team1?.id || null,
+      team2_id: lowerBracketRound3Match.team2?.id || null,
+      round: 3,
+      match_number: lowerBracketRound3Match.matchNumber,
+      winner_id: null,
+    };
+
+    const { error: insertError } = await supabase.from('brackets').insert(bracketData);
+    if (insertError) {
+      console.error('Error inserting Lower Bracket Round 3:', insertError);
+      return;
+    }
+
+    // Don't add to state here - let loadBrackets handle it after database insert
+    console.log('Lower Bracket Round 3 saved to database, will be loaded by loadBrackets');
   };
+  */
 
-  // Generate Lower Bracket Final (Lower Bracket Round 2 winner vs Lower Bracket Round 3 winner)
-  const generateLowerBracketFinal = async (targetTournamentId: string) => {
-    // Check if lower bracket final already exists
-    const lowerBracketFinalExists = brackets.some((m) => m.round === 3.5 && m.bracketCategory === 'lower');
-    if (lowerBracketFinalExists) return;
+  /*
+  const generateLowerBracketFinal = async (targetTournamentId: string, currentBrackets?: Match[]) => {
+    // Use provided brackets or current state
+    const bracketsToUse = currentBrackets || brackets;
+    
+    // Check database first
+    const { data: existingFinal } = await supabase
+      .from('brackets')
+      .select('match_number')
+      .eq('tournament_id', targetTournamentId)
+      .eq('round', 3.5);
+    
+    if (existingFinal && existingFinal.length > 0) {
+      console.log('Lower Bracket Final already exists in database');
+      return;
+    }
+    
+    // Check if lower bracket final already exists in state
+    const lowerBracketFinalExists = bracketsToUse.some((m) => m.round === 3.5 && m.bracketCategory === 'lower');
+    if (lowerBracketFinalExists) {
+      console.log('Lower Bracket Final already exists in state');
+      return;
+    }
 
-    // Get Lower Bracket Round 2 Semi-Final winner
-    const lowerBracketRound2SemiFinal = brackets.find(
+    // Get Lower Bracket Round 2 Final winner (round 2.5)
+    const lowerBracketRound2Final = bracketsToUse.find(
       (m) => m.round === 2.5 && m.bracketCategory === 'lower',
     );
-    const lowerBracketRound2Winner = lowerBracketRound2SemiFinal?.winner === 'team1'
-      ? lowerBracketRound2SemiFinal.team1
-      : lowerBracketRound2SemiFinal?.winner === 'team2'
-        ? lowerBracketRound2SemiFinal.team2
+    const lowerBracketRound2Winner = lowerBracketRound2Final?.winner === 'team1'
+      ? lowerBracketRound2Final.team1
+      : lowerBracketRound2Final?.winner === 'team2'
+        ? lowerBracketRound2Final.team2
         : null;
 
     // Get Lower Bracket Round 3 winner
-    const lowerBracketRound3Match = brackets.find(
+    const lowerBracketRound3Match = bracketsToUse.find(
       (m) => m.round === 3 && m.bracketCategory === 'lower',
     );
     const lowerBracketRound3Winner = lowerBracketRound3Match?.winner === 'team1'
@@ -1036,7 +1829,7 @@ export default function BracketGeneratorPage() {
     if (!lowerBracketRound2Winner || !lowerBracketRound3Winner) return;
 
     // Create Lower Bracket Final match
-    const nextMatchNumber = Math.max(...brackets.map((m) => m.matchNumber), 0) + 1;
+    const nextMatchNumber = Math.max(...bracketsToUse.map((m) => m.matchNumber), 0) + 1;
     const lowerBracketFinalMatch: Match = {
       team1: lowerBracketRound2Winner,
       team2: lowerBracketRound3Winner,
@@ -1046,9 +1839,6 @@ export default function BracketGeneratorPage() {
       bracketCategory: 'lower',
       winner: null,
     };
-
-    // Add match to state
-    setBrackets((prev) => [...prev, lowerBracketFinalMatch]);
 
     // Save to database
     const bracketData = {
@@ -1060,10 +1850,18 @@ export default function BracketGeneratorPage() {
       winner_id: null,
     };
 
-    await supabase.from('brackets').insert(bracketData);
-  };
+    const { error: insertError } = await supabase.from('brackets').insert(bracketData);
+    if (insertError) {
+      console.error('Error inserting Lower Bracket Final:', insertError);
+      return;
+    }
 
-  // Generate Round 4 from Round 3 winners (2 teams → 1 match → 1 winner)
+    // Don't add to state here - let loadBrackets handle it after database insert
+    console.log('Lower Bracket Final saved to database, will be loaded by loadBrackets');
+  };
+  */
+
+  /*
   const generateRound4FromRound3AndLowerBracket = async (targetTournamentId: string, currentBrackets?: Match[]) => {
     // Use provided brackets or current state
     const bracketsToUse = currentBrackets || brackets;
@@ -1131,8 +1929,9 @@ export default function BracketGeneratorPage() {
 
     await supabase.from('brackets').insert(bracketData);
   };
+  */
 
-  // Generate Final Round from Round 4 winner and Lower Bracket Final winner
+  /*
   const generateFinalRoundFromRound4 = async (targetTournamentId: string) => {
     // Check if Final Round already exists
     const finalRoundExists = brackets.some((m) => m.round === 5 && m.bracketCategory === 'upper');
@@ -1188,178 +1987,7 @@ export default function BracketGeneratorPage() {
 
     await supabase.from('brackets').insert(bracketData);
   };
-
-  const cancelRound = async (round: number, bracket: BracketNumber, bracketCategory?: BracketCategory) => {
-    // Determine bracket category if not provided
-    let category: BracketCategory = bracketCategory || 'upper';
-    if (!bracketCategory) {
-      const matches = brackets.filter((m) => m.round === round && m.bracket === bracket);
-      if (matches.length > 0) {
-        category = matches[0].bracketCategory || 'upper';
-      }
-    }
-
-    const roundMatches = brackets.filter(
-      (m) => m.round === round && m.bracket === bracket && m.bracketCategory === category,
-    );
-
-    if (roundMatches.length === 0) return;
-
-    let targetTournamentId = tournamentId;
-    if (!targetTournamentId) {
-      // If no tournament exists, recursively delete all dependent rounds and clear from state
-      const roundsToDelete: number[] = [];
-      let currentRound = round + 1;
-      while (brackets.some((m) => m.round === currentRound && m.bracket === bracket && m.bracketCategory === category)) {
-        roundsToDelete.push(currentRound);
-        currentRound++;
-      }
-
-      // If cancelling Round 2 (upper bracket), also remove all lower bracket matches
-      if (round === 2 && category === 'upper') {
-        setBrackets((prev) =>
-          prev
-            .filter((m) => 
-              !(m.bracketCategory === 'lower') && 
-              !(roundsToDelete.includes(m.round) && m.bracket === bracket && m.bracketCategory === category)
-            )
-            .map((m) =>
-              m.round === round && m.bracket === bracket && m.bracketCategory === category ? { ...m, winner: null } : m,
-            ),
-        );
-      } else {
-        setBrackets((prev) =>
-          prev
-            .filter((m) => !(roundsToDelete.includes(m.round) && m.bracket === bracket && m.bracketCategory === category))
-            .map((m) =>
-              m.round === round && m.bracket === bracket && m.bracketCategory === category ? { ...m, winner: null } : m,
-            ),
-        );
-      }
-      return;
-    }
-
-    // For lower bracket, we need to handle dependencies differently
-    // If canceling lower bracket Round 2, we need to also remove Round 4 (which depends on lower bracket winners)
-    if (category === 'lower' && round === 2) {
-      // Find Round 4 matches that depend on lower bracket winners
-      const round4Matches = brackets.filter(
-        (m) => m.round === 4 && m.bracketCategory === 'upper',
-      );
-      const round4MatchNumbers = round4Matches.map((m) => m.matchNumber);
-
-      // Delete Round 4 from database
-      if (round4MatchNumbers.length > 0) {
-        await supabase
-          .from('brackets')
-          .delete()
-          .eq('tournament_id', targetTournamentId)
-          .in('match_number', round4MatchNumbers);
-      }
-
-      // Also delete Final Round (Round 5) if it exists
-      const finalRoundMatches = brackets.filter(
-        (m) => m.round === 5 && m.bracketCategory === 'upper',
-      );
-      const finalRoundMatchNumbers = finalRoundMatches.map((m) => m.matchNumber);
-
-      if (finalRoundMatchNumbers.length > 0) {
-        await supabase
-          .from('brackets')
-          .delete()
-          .eq('tournament_id', targetTournamentId)
-          .in('match_number', finalRoundMatchNumbers);
-      }
-
-      // Remove Round 4 and Final Round from state (only upper bracket rounds 4 and 5)
-      setBrackets((prev) =>
-        prev
-          .filter((m) => !((m.round === 4 || m.round === 5) && m.bracketCategory === 'upper'))
-          .map((m) =>
-            m.round === round && m.bracket === bracket && m.bracketCategory === category ? { ...m, winner: null } : m,
-          ),
-      );
-    } else {
-      // For upper bracket, recursively find all dependent rounds
-      const roundsToDelete: number[] = [];
-      let currentRound = round + 1;
-      while (brackets.some((m) => m.round === currentRound && m.bracket === bracket && m.bracketCategory === category)) {
-        roundsToDelete.push(currentRound);
-        currentRound++;
-      }
-
-      // Get all match numbers from dependent rounds
-      const allDependentMatches = brackets.filter(
-        (m) => roundsToDelete.includes(m.round) && m.bracket === bracket && m.bracketCategory === category,
-      );
-      const dependentMatchNumbers = allDependentMatches.map((m) => m.matchNumber);
-
-      // If cancelling Round 2 (upper bracket), also remove all lower bracket matches
-      if (round === 2 && category === 'upper') {
-        // Get all lower bracket matches
-        const allLowerBracketMatches = brackets.filter((m) => m.bracketCategory === 'lower');
-        const lowerBracketMatchNumbers = allLowerBracketMatches.map((m) => m.matchNumber);
-
-        // Delete all lower bracket matches from database
-        if (lowerBracketMatchNumbers.length > 0) {
-          await supabase
-            .from('brackets')
-            .delete()
-            .eq('tournament_id', targetTournamentId)
-            .in('match_number', lowerBracketMatchNumbers);
-        }
-
-        // Delete dependent upper bracket rounds from database
-        if (dependentMatchNumbers.length > 0) {
-          await supabase
-            .from('brackets')
-            .delete()
-            .eq('tournament_id', targetTournamentId)
-            .in('match_number', dependentMatchNumbers);
-        }
-
-        // Update state: remove all lower bracket matches, dependent upper bracket rounds, and clear winners in current round
-        setBrackets((prev) =>
-          prev
-            .filter((m) => 
-              !(m.bracketCategory === 'lower') && 
-              !(roundsToDelete.includes(m.round) && m.bracket === bracket && m.bracketCategory === category)
-            )
-            .map((m) =>
-              m.round === round && m.bracket === bracket && m.bracketCategory === category ? { ...m, winner: null } : m,
-            ),
-        );
-      } else {
-        // For other upper bracket rounds, just delete dependent upper bracket rounds
-        // Delete dependent rounds from database
-        if (dependentMatchNumbers.length > 0) {
-          await supabase
-            .from('brackets')
-            .delete()
-            .eq('tournament_id', targetTournamentId)
-            .in('match_number', dependentMatchNumbers);
-        }
-
-        // Update state: remove dependent rounds and clear winners in current round
-        setBrackets((prev) =>
-          prev
-            .filter((m) => !(roundsToDelete.includes(m.round) && m.bracket === bracket && m.bracketCategory === category))
-            .map((m) =>
-              m.round === round && m.bracket === bracket && m.bracketCategory === category ? { ...m, winner: null } : m,
-            ),
-        );
-      }
-    }
-
-    // Clear winners in database for the current round
-    for (const match of roundMatches) {
-      await supabase
-        .from('brackets')
-        .update({ winner_id: null })
-        .eq('tournament_id', targetTournamentId)
-        .eq('match_number', match.matchNumber);
-    }
-  };
+  */
 
   const handleCancelRoundClick = (round: number, bracket: BracketNumber, bracketCategory?: BracketCategory) => {
     setCancelRoundData({ round, bracket, bracketCategory });
@@ -1375,7 +2003,8 @@ export default function BracketGeneratorPage() {
   };
 
   const saveBrackets = async () => {
-    setSaving(true);
+    // Use a special marker for bulk save
+    setSaving({ round: -1, bracket: 1 });
 
     let targetTournamentId = tournamentId;
 
@@ -1411,7 +2040,7 @@ export default function BracketGeneratorPage() {
       if (createError || !data?.id) {
         setSaveErrorMessage('Error creating tournament record for brackets: ' + (createError?.message || 'Unknown error'));
         setSaveErrorModalOpen(true);
-        setSaving(false);
+        setSaving(null);
         return;
       }
 
@@ -1454,7 +2083,7 @@ export default function BracketGeneratorPage() {
       setSaveSuccessModalOpen(true);
     }
 
-    setSaving(false);
+    setSaving(null);
   };
 
   const paidTeamsCount = teams.filter((t) => t.paid).length;
@@ -1468,7 +2097,7 @@ export default function BracketGeneratorPage() {
         </p>
       </div>
 
-      <div className="mb-8 bg-gray-900/50 border border-blue-500/20 rounded-xl p-4 md:p-6 glow-box">
+      <div className="mb-8 bg-gray-900/50 border border-blue-500/20 rounded-xl p-5 md:p-7 lg:p-8 glow-box">
         {/* Bracket Type Selection */}
         <div className="mb-6">
           <label className="block text-white font-semibold mb-3 text-sm md:text-base">
@@ -1516,7 +2145,7 @@ export default function BracketGeneratorPage() {
             <>
               <button
                 onClick={saveBrackets}
-                disabled={saving}
+                disabled={saving !== null}
                 className="px-4 sm:px-6 py-2 sm:py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 text-sm md:text-base w-full sm:w-auto"
               >
                 <Save className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1554,10 +2183,10 @@ export default function BracketGeneratorPage() {
                 ).sort((a, b) => a - b);
 
                 return (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 xl:gap-16">
                     {/* Left Column - Lower Bracket */}
                     <div className="space-y-8">
-                      <h3 className="text-2xl font-bold text-yellow-400 mb-6 sticky top-0 bg-black/80 backdrop-blur-sm py-2 z-10">
+                      <h3 className="text-2xl xl:text-3xl font-bold text-yellow-400 mb-6 sticky top-0 bg-black/80 backdrop-blur-sm py-2 z-10">
                         Lower Bracket
                       </h3>
                       {lowerBracketRounds.length > 0 ? (
@@ -1570,22 +2199,28 @@ export default function BracketGeneratorPage() {
                           const hasAnyWinners = roundMatches.some((m) => m.winner !== null);
                           
                           // Check if round is saved (has next round or is final round with winners)
-                          const nextRoundExists = brackets.some(
-                            (m) => {
-                              if (round === 2) return m.round === 2.5 && m.bracketCategory === 'lower';
-                              if (round === 2.5) return m.round === 3.5 && m.bracketCategory === 'lower';
-                              if (round === 3) return m.round === 3.5 && m.bracketCategory === 'lower';
-                              if (round === 3.5) return m.round === 4 && m.bracketCategory === 'upper';
-                              return false;
-                            }
-                          );
-                          const isRoundSaved = allHaveWinners && (nextRoundExists || round === 3.5);
+                          // For Lower Bracket Round 2, check if round 20 (Lower Bracket Round 2 Final) exists
+                          let isRoundSaved = allHaveWinners;
+                          if (round === 2) {
+                            // Check if Lower Bracket Round 2 Final (round 20) exists
+                            const lowerBracketRound2FinalExists = brackets.some(
+                              (m) => m.round === 20 && m.bracketCategory === 'lower'
+                            );
+                            isRoundSaved = allHaveWinners && lowerBracketRound2FinalExists;
+                          }
+                          // For Lower Bracket Round 3 (round 25), check if Lower Bracket Final (round 30) exists
+                          if (round === 25) {
+                            const lowerBracketFinalExists = brackets.some(
+                              (m) => m.round === 30 && m.bracketCategory === 'lower'
+                            );
+                            isRoundSaved = allHaveWinners && lowerBracketFinalExists;
+                          }
                           const roundKey = `lower-round-${round}`;
                           // Default to collapsed if saved, expanded if not saved
                           const isExpanded = isRoundSaved ? expandedRounds.has(roundKey) : true;
                           
                           return (
-                            <div key={`lower-round-${round}`} className="bg-black/20 border border-yellow-500/30 rounded-lg p-4">
+                            <div key={`lower-round-${round}`} className="bg-black/20 border border-yellow-500/30 rounded-lg p-5 md:p-6 lg:p-7">
                               <div className="flex items-center justify-between mb-3">
                                 {isRoundSaved ? (
                                   <button
@@ -1595,50 +2230,32 @@ export default function BracketGeneratorPage() {
                                   >
                                     {isExpanded ? <ChevronUp className="w-5 h-5 text-yellow-400" /> : <ChevronDown className="w-5 h-5 text-yellow-400" />}
                                     <h4 className="text-xl font-semibold text-yellow-400">
-                                      {round === 2.5 
-                                        ? 'Round 2 Semi-Final'
-                                        : round === 3.5
-                                          ? 'Final'
-                                          : `Round ${round}`}
-                                      {roundMatches.length === 2 && round !== 2.5 && round !== 3.5 && (
-                                        <> (Match {roundMatches[0]?.matchNumber} & {roundMatches[1]?.matchNumber})</>
-                                      )}
+                                      {round === 20 ? 'Lower Bracket Round 2 Final' : round === 25 ? 'Lower Bracket Round 3' : round === 30 ? 'Lower Bracket Final' : `Round ${round}`}
                                       <span className="text-sm text-green-400 ml-2">✓ Saved</span>
                                     </h4>
                                   </button>
                                 ) : (
                                   <div className="flex items-center gap-2 flex-1">
                                     <h4 className="text-xl font-semibold text-yellow-400">
-                                      {round === 2.5 
-                                        ? 'Round 2 Semi-Final'
-                                        : round === 3.5
-                                          ? 'Final'
-                                          : `Round ${round}`}
-                                      {roundMatches.length === 2 && round !== 2.5 && round !== 3.5 && (
-                                        <> (Match {roundMatches[0]?.matchNumber} & {roundMatches[1]?.matchNumber})</>
-                                      )}
+                                      {round === 20 ? 'Lower Bracket Round 2 Final' : round === 25 ? 'Lower Bracket Round 3' : round === 30 ? 'Lower Bracket Final' : `Round ${round}`}
                                     </h4>
                                   </div>
                                 )}
                               </div>
                               {isExpanded && (
                                 <>
-                                  <div className="grid grid-cols-1 gap-3 md:gap-4">
+                                  <div className="grid grid-cols-1 gap-4 md:gap-5 lg:gap-6">
                                     {roundMatches.map((match) => (
                                       <div
                                         key={`lower-${match.matchNumber}`}
-                                        className="bg-black/30 border border-yellow-500/20 rounded-lg p-3 md:p-4"
+                                        className="bg-black/30 border border-yellow-500/20 rounded-lg p-4 md:p-5 lg:p-6"
                                       >
-                                        <div className="text-yellow-400 text-xs md:text-sm mb-2 md:mb-3">
-                                          {round === 2.5 
-                                            ? 'Lower Bracket Round 2 Semi-Final'
-                                            : round === 3.5
-                                              ? 'Lower Bracket Final'
-                                              : `Lower Bracket Match ${roundMatches.length === 2 && match.matchNumber === roundMatches[0]?.matchNumber ? '1' : roundMatches.length === 2 ? '2' : match.matchNumber}`}
+                                        <div className="text-yellow-400 text-sm md:text-base lg:text-lg mb-3 md:mb-4">
+                                          Lower Bracket Match {roundMatches.length === 2 && match.matchNumber === roundMatches[0]?.matchNumber ? '1' : roundMatches.length === 2 ? '2' : match.matchNumber}
                                         </div>
-                                        <div className="space-y-1.5 md:space-y-2">
+                                        <div className="space-y-2 md:space-y-3 lg:space-y-4">
                                           <div
-                                            className={`flex items-center justify-between p-2 md:p-3 rounded border ${
+                                            className={`flex items-center justify-between p-3 md:p-4 lg:p-5 rounded border ${
                                               match.winner === 'team1'
                                                 ? 'glow-green-border bg-green-900/10'
                                                 : match.winner === 'team2'
@@ -1647,7 +2264,7 @@ export default function BracketGeneratorPage() {
                                             }`}
                                           >
                                             <div className="flex items-center gap-2 flex-1 min-w-0">
-                                              <span className="text-white font-semibold text-sm md:text-base truncate">
+                                              <span className="text-white font-semibold text-base md:text-lg lg:text-xl truncate">
                                                 {match.team1?.team_name || 'BYE'}
                                               </span>
                                               {match.team1 && teamStandings[match.team1.id] && (
@@ -1674,7 +2291,7 @@ export default function BracketGeneratorPage() {
                                           </div>
                                           <div className="text-center text-gray-500 text-xs md:text-sm">VS</div>
                                           <div
-                                            className={`flex items-center justify-between p-2 md:p-3 rounded border ${
+                                            className={`flex items-center justify-between p-3 md:p-4 lg:p-5 rounded border ${
                                               match.winner === 'team2'
                                                 ? 'glow-green-border bg-green-900/10'
                                                 : match.winner === 'team1'
@@ -1683,7 +2300,7 @@ export default function BracketGeneratorPage() {
                                             }`}
                                           >
                                             <div className="flex items-center gap-2 flex-1 min-w-0">
-                                              <span className="text-white font-semibold text-sm md:text-base truncate">
+                                              <span className="text-white font-semibold text-base md:text-lg lg:text-xl truncate">
                                                 {match.team2?.team_name || 'BYE'}
                                               </span>
                                               {match.team2 && teamStandings[match.team2.id] && (
@@ -1720,18 +2337,22 @@ export default function BracketGeneratorPage() {
                                         className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all flex items-center space-x-2 text-sm md:text-base"
                                       >
                                         <X className="w-4 h-4" />
-                                        <span>Cancel {round === 2.5 ? 'Round 2 Semi-Final' : round === 3.5 ? 'Final' : `Round ${round}`}</span>
+                                        <span>Cancel Round {round}</span>
                                       </button>
                                     )}
                                     {!isRoundSaved && (
                                       <button
                                         type="button"
-                                        onClick={() => saveRound(round, 1)}
-                                        disabled={!allHaveWinners}
+                                        onClick={() => saveRound(round, 1, 'lower')}
+                                        disabled={!allHaveWinners || (saving?.round === round && saving?.bracketCategory === 'lower')}
                                         className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-all flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base"
                                       >
-                                        <Save className="w-4 h-4" />
-                                        <span>Save {round === 2.5 ? 'Round 2 Semi-Final' : round === 3.5 ? 'Final' : `Round ${round}`}</span>
+                                        {(saving?.round === round && saving?.bracketCategory === 'lower') ? (
+                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                        ) : (
+                                          <Save className="w-4 h-4" />
+                                        )}
+                                        <span>{(saving?.round === round && saving?.bracketCategory === 'lower') ? 'Saving...' : `Save Round ${round}`}</span>
                                       </button>
                                     )}
                                   </div>
@@ -1762,7 +2383,8 @@ export default function BracketGeneratorPage() {
                         const hasAnyWinners = roundMatches.some((m) => m.winner !== null);
                         
                         // For Round 3, check if Round 4 exists (which is generated from Round 3)
-                        // For Round 4, check if Round 5 (Final) exists
+                        // For Round 4, check if Round 5 exists (Upper Semi)
+                        // For Round 5, check if Round 6 exists (Final Game)
                         // A round is saved if all matches have winners AND the next round exists
                         let isRoundSaved = false;
                         if (round === 3) {
@@ -1772,11 +2394,17 @@ export default function BracketGeneratorPage() {
                           );
                           isRoundSaved = allHaveWinners && round4Exists;
                         } else if (round === 4) {
-                          // Round 4 is saved if all have winners AND Round 5 (Final) exists
+                          // Round 4 is saved if all have winners AND Round 5 (Upper Semi) exists
                           const round5Exists = brackets.some(
                             (m) => m.round === 5 && m.bracket === 1 && m.bracketCategory === 'upper',
                           );
                           isRoundSaved = allHaveWinners && round5Exists;
+                        } else if (round === 5) {
+                          // Round 5 is saved if all have winners AND Round 6 (Final Game) exists
+                          const round6Exists = brackets.some(
+                            (m) => m.round === 6 && m.bracket === 1 && m.bracketCategory === 'upper',
+                          );
+                          isRoundSaved = allHaveWinners && round6Exists;
                         } else {
                           // For other rounds, use the standard check
                           isRoundSaved = allHaveWinners && nextRoundExists;
@@ -1786,7 +2414,7 @@ export default function BracketGeneratorPage() {
                         const isExpanded = isRoundSaved ? expandedRounds.has(roundKey) : true;
 
                         return (
-                          <div key={`round-${round}`} className="bg-black/20 border border-blue-500/30 rounded-lg p-4">
+                          <div key={`round-${round}`} className="bg-black/20 border border-blue-500/30 rounded-lg p-5 md:p-6 lg:p-7">
                             <div className="flex items-center justify-between mb-3">
                               {isRoundSaved ? (
                                 <button
@@ -1796,33 +2424,33 @@ export default function BracketGeneratorPage() {
                                 >
                                   {isExpanded ? <ChevronUp className="w-5 h-5 text-blue-400" /> : <ChevronDown className="w-5 h-5 text-blue-400" />}
                                   <h4 className="text-xl font-semibold text-blue-400">
-                                    Round {round} {round === 1 && '(16 Teams)'}
+                                    {round === 6 ? 'Final Game' : `Round ${round} ${round === 1 ? '(16 Teams)' : ''}`}
                                     <span className="text-sm text-green-400 ml-2">✓ Saved</span>
                                   </h4>
                                 </button>
                               ) : (
                                 <div className="flex items-center gap-2 flex-1">
                                   <h4 className="text-xl font-semibold text-blue-400">
-                                    Round {round} {round === 1 && '(16 Teams)'}
+                                    {round === 6 ? 'Final Game' : `Round ${round} ${round === 1 ? '(16 Teams)' : ''}`}
                                   </h4>
                                 </div>
                               )}
                             </div>
                             {isExpanded && (
                               <>
-                                <div className="grid grid-cols-1 gap-3 md:gap-4">
+                                <div className="grid grid-cols-1 gap-4 md:gap-5 lg:gap-6">
                                   {roundMatches.map((match) => (
                                     <div
                                       key={`b1-${match.matchNumber}`}
-                  className="bg-black/30 border border-blue-500/20 rounded-lg p-3 md:p-4"
+                  className="bg-black/30 border border-blue-500/20 rounded-lg p-4 md:p-5 lg:p-6"
                 >
-                                      <div className="text-blue-400 text-xs md:text-sm mb-2 md:mb-3">
+                                      <div className="text-blue-400 text-sm md:text-base lg:text-lg mb-3 md:mb-4">
                                         Match {match.matchNumber}
                                       </div>
                   <div className="space-y-1.5 md:space-y-2">
                                         {/* Team 1 row */}
                                         <div
-                                          className={`flex items-center justify-between p-2 md:p-3 rounded border ${
+                                          className={`flex items-center justify-between p-3 md:p-4 lg:p-5 rounded border ${
                                             match.winner === 'team1'
                                               ? 'glow-green-border bg-green-900/10'
                                               : match.winner === 'team2'
@@ -1861,7 +2489,7 @@ export default function BracketGeneratorPage() {
 
                                         {/* Team 2 row */}
                                         <div
-                                          className={`flex items-center justify-between p-2 md:p-3 rounded border ${
+                                          className={`flex items-center justify-between p-3 md:p-4 lg:p-5 rounded border ${
                                             match.winner === 'team2'
                                               ? 'glow-green-border bg-green-900/10'
                                               : match.winner === 'team1'
@@ -1913,12 +2541,16 @@ export default function BracketGeneratorPage() {
                                   {!isRoundSaved && (
                                     <button
                                       type="button"
-                                      onClick={() => saveRound(round, 1)}
-                                      disabled={!allHaveWinners}
+                                      onClick={() => saveRound(round, 1, 'upper')}
+                                      disabled={!allHaveWinners || (saving?.round === round && saving?.bracketCategory === 'upper')}
                                       className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base"
                                     >
-                                      <Save className="w-4 h-4" />
-                                      <span>Save Round {round}</span>
+                                      {(saving?.round === round && saving?.bracketCategory === 'upper') ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                      ) : (
+                                        <Save className="w-4 h-4" />
+                                      )}
+                                      <span>{(saving?.round === round && saving?.bracketCategory === 'upper') ? 'Saving...' : `Save Round ${round}`}</span>
                                     </button>
                                   )}
           </div>
@@ -1932,13 +2564,13 @@ export default function BracketGeneratorPage() {
   );
               })()
             ) : (
-              // 2 Brackets System - Show rounds separately for each bracket
+              // 2 Brackets System - Show rounds for each bracket
               (() => {
                 const bracket1Rounds = Array.from(
-                  new Set(brackets.filter((m) => m.bracket === 1).map((m) => m.round)),
+                  new Set(brackets.filter((m) => m.bracket === 1 && m.bracketCategory === 'upper').map((m) => m.round)),
                 ).sort((a, b) => a - b);
                 const bracket2Rounds = Array.from(
-                  new Set(brackets.filter((m) => m.bracket === 2).map((m) => m.round)),
+                  new Set(brackets.filter((m) => m.bracket === 2 && m.bracketCategory === 'upper').map((m) => m.round)),
                 ).sort((a, b) => a - b);
 
                 return (
@@ -1948,12 +2580,12 @@ export default function BracketGeneratorPage() {
                       <h4 className="text-2xl font-semibold text-white mb-4">Bracket 1</h4>
                       {bracket1Rounds.map((round) => {
                         const roundMatches = brackets
-                          .filter((m) => m.bracket === 1 && m.round === round)
+                          .filter((m) => m.bracket === 1 && m.round === round && m.bracketCategory === 'upper')
                           .sort((a, b) => a.matchNumber - b.matchNumber);
 
                         const allHaveWinners = roundMatches.every((m) => m.winner !== null);
                         const nextRoundExists = brackets.some(
-                          (m) => m.round === round + 1 && m.bracket === 1,
+                          (m) => m.round === round + 1 && m.bracket === 1 && m.bracketCategory === 'upper',
                         );
                         const hasAnyWinners = roundMatches.some((m) => m.winner !== null);
 
@@ -1964,11 +2596,11 @@ export default function BracketGeneratorPage() {
                                 Round {round} {round === 1 && '(8 Teams)'}
                               </h5>
                             </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5 lg:gap-6">
                               {roundMatches.map((match) => (
                     <div
                       key={`b1-${match.matchNumber}`}
-                      className="bg-black/30 border border-blue-500/20 rounded-lg p-3 md:p-4"
+                      className="bg-black/30 border border-blue-500/20 rounded-lg p-4 md:p-5 lg:p-6"
                     >
                       <div className="text-blue-400 text-xs md:text-sm mb-2 md:mb-3">
                         Bracket 1 - Match {match.matchNumber}
@@ -1976,7 +2608,7 @@ export default function BracketGeneratorPage() {
                       <div className="space-y-1.5 md:space-y-2">
                         {/* Team 1 row */}
                         <div
-                          className={`flex items-center justify-between p-2 md:p-3 rounded border ${
+                          className={`flex items-center justify-between p-3 md:p-4 lg:p-5 rounded border ${
                             match.winner === 'team1'
                               ? 'glow-green-border bg-green-900/10'
                               : match.winner === 'team2'
@@ -2015,7 +2647,7 @@ export default function BracketGeneratorPage() {
 
                         {/* Team 2 row */}
                         <div
-                          className={`flex items-center justify-between p-2 md:p-3 rounded border ${
+                          className={`flex items-center justify-between p-3 md:p-4 lg:p-5 rounded border ${
                             match.winner === 'team2'
                               ? 'glow-green-border bg-green-900/10'
                               : match.winner === 'team1'
@@ -2067,12 +2699,16 @@ export default function BracketGeneratorPage() {
                               {!nextRoundExists && (
                                 <button
                                   type="button"
-                                  onClick={() => saveRound(round, 1)}
-                                  disabled={!allHaveWinners}
+                                  onClick={() => saveRound(round, 1, 'upper')}
+                                  disabled={!allHaveWinners || (saving?.round === round && saving?.bracketCategory === 'upper')}
                                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base"
                                 >
-                                  <Save className="w-4 h-4" />
-                                  <span>Save Round {round}</span>
+                                  {(saving?.round === round && saving?.bracketCategory === 'upper') ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Save className="w-4 h-4" />
+                                  )}
+                                  <span>{(saving?.round === round && saving?.bracketCategory === 'upper') ? 'Saving...' : `Save Round ${round}`}</span>
                                 </button>
                               )}
                             </div>
@@ -2086,12 +2722,12 @@ export default function BracketGeneratorPage() {
                       <h4 className="text-2xl font-semibold text-white mb-4">Bracket 2</h4>
                       {bracket2Rounds.map((round) => {
                         const roundMatches = brackets
-                          .filter((m) => m.bracket === 2 && m.round === round)
+                          .filter((m) => m.bracket === 2 && m.round === round && m.bracketCategory === 'upper')
                           .sort((a, b) => a.matchNumber - b.matchNumber);
 
                         const allHaveWinners = roundMatches.every((m) => m.winner !== null);
                         const nextRoundExists = brackets.some(
-                          (m) => m.round === round + 1 && m.bracket === 2,
+                          (m) => m.round === round + 1 && m.bracket === 2 && m.bracketCategory === 'upper',
                         );
                         const hasAnyWinners = roundMatches.some((m) => m.winner !== null);
 
@@ -2102,11 +2738,11 @@ export default function BracketGeneratorPage() {
                                 Round {round} {round === 1 && '(8 Teams)'}
                               </h5>
                             </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5 lg:gap-6">
                               {roundMatches.map((match) => (
                     <div
                       key={`b2-${match.matchNumber}`}
-                      className="bg-black/30 border border-blue-500/20 rounded-lg p-3 md:p-4"
+                      className="bg-black/30 border border-blue-500/20 rounded-lg p-4 md:p-5 lg:p-6"
                     >
                       <div className="text-blue-400 text-xs md:text-sm mb-2 md:mb-3">
                         Bracket 2 - Match {match.matchNumber}
@@ -2114,7 +2750,7 @@ export default function BracketGeneratorPage() {
                       <div className="space-y-1.5 md:space-y-2">
                         {/* Team 1 row */}
                         <div
-                          className={`flex items-center justify-between p-2 md:p-3 rounded border ${
+                          className={`flex items-center justify-between p-3 md:p-4 lg:p-5 rounded border ${
                             match.winner === 'team1'
                               ? 'glow-green-border bg-green-900/10'
                               : match.winner === 'team2'
@@ -2153,7 +2789,7 @@ export default function BracketGeneratorPage() {
 
                         {/* Team 2 row */}
                         <div
-                          className={`flex items-center justify-between p-2 md:p-3 rounded border ${
+                          className={`flex items-center justify-between p-3 md:p-4 lg:p-5 rounded border ${
                             match.winner === 'team2'
                               ? 'glow-green-border bg-green-900/10'
                               : match.winner === 'team1'
@@ -2205,12 +2841,16 @@ export default function BracketGeneratorPage() {
                               {!nextRoundExists && (
                                 <button
                                   type="button"
-                                  onClick={() => saveRound(round, 2)}
-                                  disabled={!allHaveWinners}
+                                  onClick={() => saveRound(round, 2, 'upper')}
+                                  disabled={!allHaveWinners || (saving?.round === round && saving?.bracket === 2)}
                                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base"
                                 >
-                                  <Save className="w-4 h-4" />
-                                  <span>Save Round {round}</span>
+                                  {(saving?.round === round && saving?.bracket === 2) ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Save className="w-4 h-4" />
+                                  )}
+                                  <span>{(saving?.round === round && saving?.bracket === 2) ? 'Saving...' : `Save Round ${round}`}</span>
                                 </button>
                               )}
                             </div>

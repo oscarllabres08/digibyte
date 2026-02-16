@@ -80,6 +80,11 @@ export default function Champions() {
     }
   };
 
+  // Derive champion and runners-up for clearer highlighting
+  const champion = champions.find((c) => c.position === 1) || null;
+  const firstRunnerUp = champions.find((c) => c.position === 2) || null;
+  const secondRunnerUp = champions.find((c) => c.position === 3) || null;
+
   return (
     <section id="champions" className="min-h-screen py-20 relative overflow-hidden">
       <div className="container mx-auto px-4 md:px-6 relative z-10">
@@ -96,62 +101,123 @@ export default function Champions() {
             <p>No champions yet. Be the first!</p>
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-            {champions.map((champion, index) => (
+          <div className="space-y-8">
+            {/* Champion - full width, very highlighted */}
+            {champion && (
               <div
-                key={champion.id}
-                className={`bg-gradient-to-br ${getPositionColor(champion.position)} border rounded-xl p-5 md:p-6 animate-slide-up glow-box-subtle hover:scale-105 transition-transform duration-300`}
-                style={{ animationDelay: `${index * 100}ms` }}
+                className={`max-w-3xl mx-auto bg-gradient-to-br ${getPositionColor(1)} border-2 border-yellow-400 rounded-2xl p-6 md:p-8 animate-slide-up glow-box-subtle shadow-2xl`}
               >
                 <div className="flex items-center justify-between mb-4">
-                  {getPositionIcon(champion.position)}
-                  <span className="text-blue-400 text-xs md:text-sm font-medium">
+                  <div className="flex items-center gap-3">
+                    {getPositionIcon(1)}
+                    <span className="px-3 py-1 rounded-full bg-yellow-500/20 border border-yellow-400 text-yellow-300 text-xs md:text-sm font-semibold uppercase tracking-wide">
+                      {getPositionText(1)}
+                    </span>
+                  </div>
+                  <span className="text-yellow-300 text-xs md:text-sm font-medium">
                     Week {champion.week} - {champion.year}
                   </span>
                 </div>
 
-                <h3 className="text-2xl md:text-3xl font-bold text-white mb-3">
+                <h3 className="text-3xl md:text-4xl font-extrabold text-white mb-4 tracking-wide">
                   {champion.teams.team_name}
                 </h3>
-
-                <div className="mb-4">
-                  {champion.position === 1 && (
-                    <span className="text-yellow-400 font-bold text-lg md:text-xl glow-text">
-                      {getPositionText(champion.position)}
-                    </span>
-                  )}
-                  {champion.position === 2 && (
-                    <span className="text-gray-300 font-bold text-lg md:text-xl">
-                      {getPositionText(champion.position)}
-                    </span>
-                  )}
-                  {champion.position === 3 && (
-                    <span className="text-orange-400 font-bold text-lg md:text-xl">
-                      {getPositionText(champion.position)}
-                    </span>
-                  )}
-                </div>
 
                 {champion.teams.team_photo && (
                   <img
                     src={champion.teams.team_photo}
                     alt={champion.teams.team_name}
-                    className="w-full h-40 object-cover rounded-lg mb-4"
+                    className="w-full h-48 md:h-56 object-cover rounded-xl mb-5 border border-yellow-500/40"
                   />
                 )}
 
-                <div className="text-sm md:text-base text-gray-300">
+                <div className="text-sm md:text-base text-gray-100">
                   <p className="mb-1">
-                    <span className="text-blue-400 font-semibold">Captain:</span> {champion.teams.team_captain}
+                    <span className="text-yellow-300 font-semibold">Captain:</span> {champion.teams.team_captain}
                   </p>
                   {champion.teams.team_members.length > 0 && (
                     <p>
-                      <span className="text-blue-400 font-semibold">Members:</span> {champion.teams.team_members.join(', ')}
+                      <span className="text-yellow-300 font-semibold">Members:</span> {champion.teams.team_members.join(', ')}
                     </p>
                   )}
                 </div>
               </div>
-            ))}
+            )}
+
+            {/* Runners-up row */}
+            {(firstRunnerUp || secondRunnerUp) && (
+              <div className="grid md:grid-cols-2 gap-4 md:gap-6">
+                {firstRunnerUp && (
+                  <div
+                    key={firstRunnerUp.id}
+                    className={`bg-gradient-to-br ${getPositionColor(2)} border rounded-xl p-5 md:p-6 animate-slide-up glow-box-subtle`}
+                    style={{ animationDelay: `100ms` }}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        {getPositionIcon(2)}
+                        <span className="px-2 py-0.5 rounded-full bg-gray-500/20 border border-gray-400 text-gray-100 text-xs font-semibold uppercase tracking-wide">
+                          {getPositionText(2)}
+                        </span>
+                      </div>
+                      <span className="text-gray-200 text-xs font-medium">
+                        Week {firstRunnerUp.week} - {firstRunnerUp.year}
+                      </span>
+                    </div>
+
+                    <h3 className="text-xl md:text-2xl font-bold text-white mb-3">
+                      {firstRunnerUp.teams.team_name}
+                    </h3>
+
+                    <div className="text-sm md:text-base text-gray-200">
+                      <p className="mb-1">
+                        <span className="text-gray-100 font-semibold">Captain:</span> {firstRunnerUp.teams.team_captain}
+                      </p>
+                      {firstRunnerUp.teams.team_members.length > 0 && (
+                        <p>
+                          <span className="text-gray-100 font-semibold">Members:</span> {firstRunnerUp.teams.team_members.join(', ')}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {secondRunnerUp && (
+                  <div
+                    key={secondRunnerUp.id}
+                    className={`bg-gradient-to-br ${getPositionColor(3)} border rounded-xl p-5 md:p-6 animate-slide-up glow-box-subtle`}
+                    style={{ animationDelay: `200ms` }}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        {getPositionIcon(3)}
+                        <span className="px-2 py-0.5 rounded-full bg-orange-500/20 border border-orange-400 text-orange-200 text-xs font-semibold uppercase tracking-wide">
+                          {getPositionText(3)}
+                        </span>
+                      </div>
+                      <span className="text-orange-200 text-xs font-medium">
+                        Week {secondRunnerUp.week} - {secondRunnerUp.year}
+                      </span>
+                    </div>
+
+                    <h3 className="text-xl md:text-2xl font-bold text-white mb-3">
+                      {secondRunnerUp.teams.team_name}
+                    </h3>
+
+                    <div className="text-sm md:text-base text-orange-100">
+                      <p className="mb-1">
+                        <span className="font-semibold">Captain:</span> {secondRunnerUp.teams.team_captain}
+                      </p>
+                      {secondRunnerUp.teams.team_members.length > 0 && (
+                        <p>
+                          <span className="font-semibold">Members:</span> {secondRunnerUp.teams.team_members.join(', ')}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
