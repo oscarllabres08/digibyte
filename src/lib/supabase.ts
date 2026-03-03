@@ -66,6 +66,7 @@ export type Player = {
 export type RegistrationSettings = {
   id: string;
   team_registration_active: boolean;
+  live_bracket_visible?: boolean;
   updated_at: string;
   updated_by?: string;
 };

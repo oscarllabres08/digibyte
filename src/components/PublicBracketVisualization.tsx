@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Grid3x3, Info, Loader2, RefreshCw, Trophy, ChevronDown, ChevronUp } from 'lucide-react';
+import { Grid3x3, Info, Loader2, RefreshCw, Trophy, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import { supabase, Bracket, Team, Tournament } from '../lib/supabase';
 
 type WinnerSide = 'team1' | 'team2' | null;
@@ -112,6 +112,7 @@ export default function PublicBracketVisualization() {
   const [loading, setLoading] = useState(true);
   const [loadingBracket, setLoadingBracket] = useState(false);
   const [error, setError] = useState<string>('');
+  const [liveBracketVisible, setLiveBracketVisible] = useState<boolean>(true);
 
   const realtimeChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -196,8 +197,30 @@ export default function PublicBracketVisualization() {
     }
   };
 
+  const loadLiveBracketSetting = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('registration_settings')
+        .select('live_bracket_visible')
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error loading live bracket setting:', error);
+        // Default to visible if error
+        setLiveBracketVisible(true);
+      } else {
+        setLiveBracketVisible(data?.live_bracket_visible ?? true);
+      }
+    } catch (err) {
+      console.error('Unexpected error loading live bracket setting:', err);
+      setLiveBracketVisible(true);
+    }
+  };
+
   useEffect(() => {
     void loadActiveTournament();
+    void loadLiveBracketSetting();
   }, []);
 
   // Load brackets + subscribe for realtime updates when admin saves winners
@@ -245,6 +268,24 @@ export default function PublicBracketVisualization() {
       }
     };
   }, [activeTournament?.id]);
+
+  // Subscribe to registration_settings changes for live_bracket_visible
+  useEffect(() => {
+    const channel = supabase
+      .channel('registration-settings-changes')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'registration_settings' },
+        () => {
+          void loadLiveBracketSetting();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, []);
 
   const rounds = useMemo(() => {
     const byGroup = new Map<string, { round: number; bracketCategory: BracketCategory; matches: MatchView[] }>();
@@ -377,7 +418,17 @@ export default function PublicBracketVisualization() {
             <p className="text-xs sm:text-sm text-gray-500 mt-2">Once the admin generates Round 1, it will appear here.</p>
           </div>
         ) : (
-          <div className="bg-gray-900/50 border border-blue-500/20 rounded-xl p-4 sm:p-5 md:p-6 lg:p-8 glow-box-subtle">
+          <div className="bg-gray-900/50 border border-blue-500/20 rounded-xl p-4 sm:p-5 md:p-6 lg:p-8 glow-box-subtle relative">
+            {/* Overlay to hide bracket content when toggle is off */}
+            {!liveBracketVisible && (
+              <div className="absolute inset-0 bg-gray-900/95 backdrop-blur-sm rounded-xl z-50 flex items-center justify-center">
+                <div className="text-center px-4">
+                  <Lock className="w-16 h-16 mx-auto mb-4 text-gray-400 opacity-50" />
+                  <p className="text-gray-300 text-lg font-semibold mb-2">Live Bracket Hidden</p>
+                  <p className="text-gray-400 text-sm">The bracket is currently not available for viewing.</p>
+                </div>
+              </div>
+            )}
             {champion && (
               <div className="mb-4 sm:mb-5">
                 <div className="bg-gradient-to-br from-yellow-900/30 to-orange-900/20 border border-yellow-500/40 rounded-xl p-4 sm:p-5 flex items-center gap-3">
