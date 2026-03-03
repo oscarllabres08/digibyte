@@ -34,6 +34,7 @@ export default function TeamsManagementPage() {
     message: '',
     targetId: null,
   });
+  const [deleteAllConfirmOpen, setDeleteAllConfirmOpen] = useState(false);
 
   useEffect(() => {
     loadTeams();
@@ -119,6 +120,35 @@ export default function TeamsManagementPage() {
       await loadTeams();
     }
     setLoading(false);
+  };
+
+  const deleteAllTeams = async () => {
+    setLoading(true);
+    try {
+      // First, delete all brackets that reference teams (to avoid foreign key constraint violations)
+      const { error: bracketsError } = await supabase.from('brackets').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      
+      if (bracketsError) {
+        console.error('Error deleting brackets:', bracketsError);
+        // Continue anyway - brackets might not exist
+      }
+
+      // Champions table has ON DELETE CASCADE, so it will be handled automatically
+      // Now delete all teams
+      const { error } = await supabase.from('teams').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      if (error) {
+        console.error('Error deleting all teams:', error);
+        throw error;
+      }
+
+      await loadTeams();
+      setDeleteAllConfirmOpen(false);
+    } catch (err) {
+      alert('Error deleting all teams: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const openDeleteTeamConfirm = (team: Team) => {
@@ -375,16 +405,27 @@ export default function TeamsManagementPage() {
           <h3 className="text-xl md:text-2xl font-bold text-white">
             Teams Management ({teams.length} total, {filteredTeams.length} shown)
           </h3>
-          <button
-            onClick={() => {
-              setEditingTeam(null);
-              setShowAddForm(true);
-            }}
-            className="px-4 sm:px-6 py-2 sm:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center space-x-2 glow-button text-sm md:text-base w-full sm:w-auto"
-          >
-            <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
-            <span>Add Team</span>
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
+            <button
+              onClick={() => {
+                setEditingTeam(null);
+                setShowAddForm(true);
+              }}
+              className="px-4 sm:px-6 py-2 sm:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center space-x-2 glow-button text-sm md:text-base w-full sm:w-auto"
+            >
+              <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>Add Team</span>
+            </button>
+            {teams.length > 0 && (
+              <button
+                onClick={() => setDeleteAllConfirmOpen(true)}
+                className="px-4 sm:px-6 py-2 sm:py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all flex items-center justify-center space-x-2 text-sm md:text-base w-full sm:w-auto"
+              >
+                <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span>Delete All Teams</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Search and Filter Section */}
@@ -711,6 +752,17 @@ export default function TeamsManagementPage() {
         onCancel={() =>
           setConfirmState((prev) => ({ ...prev, open: false, targetId: null }))
         }
+      />
+
+      <ConfirmModal
+        open={deleteAllConfirmOpen}
+        title="Delete All Teams"
+        message={`Are you sure you want to delete ALL ${teams.length} teams? This action cannot be undone and will permanently delete all team data.`}
+        confirmLabel="Delete All"
+        cancelLabel="Cancel"
+        loading={loading}
+        onConfirm={deleteAllTeams}
+        onCancel={() => setDeleteAllConfirmOpen(false)}
       />
     </div>
   );

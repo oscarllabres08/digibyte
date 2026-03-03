@@ -86,13 +86,13 @@ export default function Champions() {
   const secondRunnerUp = champions.find((c) => c.position === 3) || null;
 
   return (
-    <section id="champions" className="min-h-screen py-20 relative overflow-hidden">
-      <div className="container mx-auto px-4 md:px-6 relative z-10">
-        <div className="text-center mb-12 md:mb-16 animate-fade-in">
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-2 md:mb-4">
+    <section id="champions" className="min-h-screen py-12 sm:py-16 md:py-20 relative overflow-hidden">
+      <div className="container mx-auto px-4 sm:px-6 relative z-10">
+        <div className="text-center mb-8 sm:mb-12 md:mb-16 animate-fade-in">
+          <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-2 sm:mb-3 md:mb-4">
             Hall of <span className="text-blue-400 glow-text">Champions</span>
           </h2>
-          <p className="text-gray-400 text-base md:text-lg">Celebrating our winners</p>
+          <p className="text-gray-400 text-sm sm:text-base md:text-lg">Celebrating our winners</p>
         </div>
 
         {champions.length === 0 ? (
@@ -101,25 +101,25 @@ export default function Champions() {
             <p>No champions yet. Be the first!</p>
           </div>
         ) : (
-          <div className="space-y-8">
+          <div className="space-y-4 sm:space-y-6 md:space-y-8">
             {/* Champion - full width, very highlighted */}
             {champion && (
               <div
-                className={`max-w-3xl mx-auto bg-gradient-to-br ${getPositionColor(1)} border-2 border-yellow-400 rounded-2xl p-6 md:p-8 animate-slide-up glow-box-subtle shadow-2xl`}
+                className={`max-w-3xl mx-auto bg-gradient-to-br ${getPositionColor(1)} border-2 border-yellow-400 rounded-xl sm:rounded-2xl p-4 sm:p-5 md:p-6 lg:p-8 animate-slide-up glow-box-subtle shadow-2xl`}
               >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 sm:mb-4 gap-2">
+                  <div className="flex items-center gap-2 sm:gap-3">
                     {getPositionIcon(1)}
-                    <span className="px-3 py-1 rounded-full bg-yellow-500/20 border border-yellow-400 text-yellow-300 text-xs md:text-sm font-semibold uppercase tracking-wide">
+                    <span className="px-2 sm:px-3 py-0.5 sm:py-1 rounded-full bg-yellow-500/20 border border-yellow-400 text-yellow-300 text-xs font-semibold uppercase tracking-wide">
                       {getPositionText(1)}
                     </span>
                   </div>
-                  <span className="text-yellow-300 text-xs md:text-sm font-medium">
+                  <span className="text-yellow-300 text-xs font-medium">
                     Week {champion.week} - {champion.year}
                   </span>
                 </div>
 
-                <h3 className="text-3xl md:text-4xl font-extrabold text-white mb-4 tracking-wide">
+                <h3 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-white mb-3 sm:mb-4 tracking-wide">
                   {champion.teams.team_name}
                 </h3>
 
@@ -127,11 +127,11 @@ export default function Champions() {
                   <img
                     src={champion.teams.team_photo}
                     alt={champion.teams.team_name}
-                    className="w-full h-48 md:h-56 object-cover rounded-xl mb-5 border border-yellow-500/40"
+                    className="w-full h-40 sm:h-48 md:h-56 object-cover rounded-lg sm:rounded-xl mb-4 sm:mb-5 border border-yellow-500/40"
                   />
                 )}
 
-                <div className="text-sm md:text-base text-gray-100">
+                <div className="text-xs sm:text-sm md:text-base text-gray-100">
                   <p className="mb-1">
                     <span className="text-yellow-300 font-semibold">Captain:</span> {champion.teams.team_captain}
                   </p>
@@ -146,14 +146,14 @@ export default function Champions() {
 
             {/* Runners-up row */}
             {(firstRunnerUp || secondRunnerUp) && (
-              <div className="grid md:grid-cols-2 gap-4 md:gap-6">
+              <div className="grid md:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
                 {firstRunnerUp && (
                   <div
                     key={firstRunnerUp.id}
-                    className={`bg-gradient-to-br ${getPositionColor(2)} border rounded-xl p-5 md:p-6 animate-slide-up glow-box-subtle`}
+                    className={`bg-gradient-to-br ${getPositionColor(2)} border rounded-lg sm:rounded-xl p-4 sm:p-5 md:p-6 animate-slide-up glow-box-subtle`}
                     style={{ animationDelay: `100ms` }}
                   >
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-2 sm:mb-3 gap-2">
                       <div className="flex items-center gap-2">
                         {getPositionIcon(2)}
                         <span className="px-2 py-0.5 rounded-full bg-gray-500/20 border border-gray-400 text-gray-100 text-xs font-semibold uppercase tracking-wide">
@@ -165,11 +165,11 @@ export default function Champions() {
                       </span>
                     </div>
 
-                    <h3 className="text-xl md:text-2xl font-bold text-white mb-3">
+                    <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-white mb-2 sm:mb-3">
                       {firstRunnerUp.teams.team_name}
                     </h3>
 
-                    <div className="text-sm md:text-base text-gray-200">
+                    <div className="text-xs sm:text-sm md:text-base text-gray-200">
                       <p className="mb-1">
                         <span className="text-gray-100 font-semibold">Captain:</span> {firstRunnerUp.teams.team_captain}
                       </p>
@@ -185,10 +185,10 @@ export default function Champions() {
                 {secondRunnerUp && (
                   <div
                     key={secondRunnerUp.id}
-                    className={`bg-gradient-to-br ${getPositionColor(3)} border rounded-xl p-5 md:p-6 animate-slide-up glow-box-subtle`}
+                    className={`bg-gradient-to-br ${getPositionColor(3)} border rounded-lg sm:rounded-xl p-4 sm:p-5 md:p-6 animate-slide-up glow-box-subtle`}
                     style={{ animationDelay: `200ms` }}
                   >
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-2 sm:mb-3 gap-2">
                       <div className="flex items-center gap-2">
                         {getPositionIcon(3)}
                         <span className="px-2 py-0.5 rounded-full bg-orange-500/20 border border-orange-400 text-orange-200 text-xs font-semibold uppercase tracking-wide">
@@ -200,11 +200,11 @@ export default function Champions() {
                       </span>
                     </div>
 
-                    <h3 className="text-xl md:text-2xl font-bold text-white mb-3">
+                    <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-white mb-2 sm:mb-3">
                       {secondRunnerUp.teams.team_name}
                     </h3>
 
-                    <div className="text-sm md:text-base text-orange-100">
+                    <div className="text-xs sm:text-sm md:text-base text-orange-100">
                       <p className="mb-1">
                         <span className="font-semibold">Captain:</span> {secondRunnerUp.teams.team_captain}
                       </p>

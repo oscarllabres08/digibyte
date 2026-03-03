@@ -1,21 +1,22 @@
 import { useState, useEffect, useRef } from 'react';
-import { Users, Trophy, Grid3x3, LayoutDashboard, Info, Menu, X, LogOut } from 'lucide-react';
+import { Users, Trophy, Grid3x3, LayoutDashboard, Info, Menu, X, LogOut, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import TeamsManagementPage from './admin/TeamsManagementPage';
 import ChampionsManagementPage from './admin/ChampionsManagementPage';
 import BracketGeneratorPage from './admin/BracketGeneratorPage';
 import TournamentManagementPage from './admin/TournamentManagementPage';
+import RegistrationSettingsPage from './admin/RegistrationSettingsPage';
 import ConfirmModal from './ConfirmModal';
 
-type Page = 'teams' | 'champions' | 'brackets' | 'tournaments';
+type Page = 'teams' | 'champions' | 'brackets' | 'tournaments' | 'settings';
 
 export default function AdminDashboard() {
   // Restore active page from localStorage or default to 'teams'
   const getInitialPage = (): Page => {
     if (typeof window !== 'undefined') {
       const saved = window.localStorage.getItem('digibyte_admin_active_page');
-      if (saved && ['teams', 'champions', 'brackets', 'tournaments'].includes(saved)) {
+      if (saved && ['teams', 'champions', 'brackets', 'tournaments', 'settings'].includes(saved)) {
         return saved as Page;
       }
     }
@@ -33,6 +34,7 @@ export default function AdminDashboard() {
     { id: 'tournaments' as Page, label: 'Tournament Info', icon: Info },
     { id: 'champions' as Page, label: 'Weekly Champion', icon: Trophy },
     { id: 'brackets' as Page, label: 'Bracket Generator', icon: Grid3x3 },
+    { id: 'settings' as Page, label: 'Registration Settings', icon: Settings },
   ];
 
   const handlePageChange = (pageId: Page) => {
@@ -71,6 +73,8 @@ export default function AdminDashboard() {
         return <ChampionsManagementPage />;
       case 'brackets':
         return <BracketGeneratorPage />;
+      case 'settings':
+        return <RegistrationSettingsPage />;
       default:
         return <TeamsManagementPage />;
     }
@@ -141,26 +145,26 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      <div className="container mx-auto px-4 md:px-6 relative z-10">
+      <div className="container mx-auto px-3 sm:px-4 md:px-6 relative z-10">
         {/* Mobile Menu Button */}
-        <div className="lg:hidden mb-4">
+        <div className="lg:hidden mb-2 sm:mb-3 md:mb-4">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-gray-900/50 border border-blue-500/20 rounded-lg text-white hover:bg-gray-800/50 transition-colors"
+            className="flex items-center space-x-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-gray-900/50 border border-blue-500/20 rounded-lg text-white hover:bg-gray-800/50 transition-colors text-sm sm:text-base"
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="w-4 h-4 sm:w-5 sm:h-5" />
             <span>Menu</span>
           </button>
         </div>
 
-        <div className="text-center mb-6 md:mb-8 animate-fade-in">
-          <h2 className="text-2xl md:text-4xl lg:text-5xl font-bold text-white mb-2 md:mb-4">
+        <div className="text-center mb-4 sm:mb-5 md:mb-6 lg:mb-8 animate-fade-in">
+          <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl xl:text-5xl font-bold text-white mb-1 sm:mb-2 md:mb-3 lg:mb-4">
             Admin <span className="text-blue-400 glow-text">Dashboard</span>
           </h2>
-          <p className="text-gray-400 text-sm md:text-lg">Manage teams and tournaments</p>
+          <p className="text-gray-400 text-xs sm:text-sm md:text-base lg:text-lg">Manage teams and tournaments</p>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-4 md:gap-6">
+        <div className="flex flex-col lg:flex-row gap-3 sm:gap-4 md:gap-6">
           {/* Desktop Sidebar Navigation */}
           <div className="hidden lg:block lg:w-64 flex-shrink-0">
             <div className="bg-gray-900/50 border border-blue-500/20 rounded-xl p-4 glow-box-subtle sticky top-24">
@@ -202,7 +206,7 @@ export default function AdminDashboard() {
 
           {/* Main Content Area */}
           <div className="flex-1 min-w-0">
-            <div className="bg-gray-900/50 border border-blue-500/20 rounded-xl p-4 md:p-6 glow-box-subtle">
+            <div className="bg-gray-900/50 border border-blue-500/20 rounded-xl p-3 sm:p-4 md:p-5 lg:p-6 glow-box-subtle">
               {renderPage()}
             </div>
           </div>

@@ -26,7 +26,7 @@ export default function BracketGeneratorPage() {
   const [tournamentId, setTournamentId] = useState('');
   const [saving, setSaving] = useState<{ round: number; bracket: BracketNumber; bracketCategory?: BracketCategory } | null>(null);
   const [confirmGenerateOpen, setConfirmGenerateOpen] = useState(false);
-  const [bracketType, setBracketType] = useState<BracketType>('2-brackets');
+  const [bracketType, setBracketType] = useState<BracketType>('1-bracket');
   const [saveSuccessModalOpen, setSaveSuccessModalOpen] = useState(false);
   const [saveErrorModalOpen, setSaveErrorModalOpen] = useState(false);
   const [saveErrorMessage, setSaveErrorMessage] = useState('');
@@ -109,35 +109,10 @@ export default function BracketGeneratorPage() {
     const findTeam = (teamId: string | null) =>
       teamsSource.find((t) => t.id === teamId) || null;
 
-    // Try to restore bracket type from localStorage, otherwise default to 2-brackets
-    let detectedBracketType: BracketType = '2-brackets';
-    if (typeof window !== 'undefined') {
-      const storedType = window.localStorage.getItem('digibyte_bracket_type');
-      if (storedType === '1-bracket' || storedType === '2-brackets') {
-        detectedBracketType = storedType as BracketType;
-      }
-    }
-    const is1Bracket = detectedBracketType === '1-bracket';
-    if (is1Bracket) {
-      setBracketType('1-bracket');
-    } else {
-      setBracketType('2-brackets');
-    }
+    // This page currently supports the 1-bracket system only
+    setBracketType('1-bracket');
 
-    // For 2-bracket system, determine bracket assignments
-    // Round 1: matches 1-4 = bracket 1, matches 5-8 = bracket 2
-    // Later rounds: use simple heuristic based on match position in round
-    const getBracketForMatch = (row: any): BracketNumber => {
-      if (is1Bracket) return 1;
-      if (row.round === 1) {
-        return row.match_number <= 4 ? 1 : 2;
-      }
-      // For later rounds, use match position: lower half = bracket 1, upper half = bracket 2
-      const roundMatches = data.filter((m: any) => m.round === row.round);
-      const sortedRoundMatches = roundMatches.sort((a: any, b: any) => a.match_number - b.match_number);
-      const midPoint = Math.ceil(sortedRoundMatches.length / 2);
-      return row.match_number <= sortedRoundMatches[midPoint - 1]?.match_number ? 1 : 2;
-    };
+    const getBracketForMatch = (_row: any): BracketNumber => 1;
 
     // Helper function to determine bracket category
     const determineBracketCategory = (round: number, matchNumber: number, allMatches: any[]): BracketCategory => {
@@ -225,20 +200,15 @@ export default function BracketGeneratorPage() {
     );
 
     setBrackets(finalLoaded);
-    setBracketType(detectedBracketType);
+    setBracketType('1-bracket');
   };
 
   // Load teams on initial mount and restore bracket type preference
   useEffect(() => {
     loadTeams();
     
-    // Restore bracket type preference from localStorage
-    if (typeof window !== 'undefined') {
-      const storedType = window.localStorage.getItem('digibyte_bracket_type');
-      if (storedType === '1-bracket' || storedType === '2-brackets') {
-        setBracketType(storedType as BracketType);
-      }
-    }
+    // Set bracket type to 1-bracket
+    setBracketType('1-bracket');
   }, []);
 
   // Once teams are loaded, restore last saved brackets for the current tournament (if any)
@@ -254,7 +224,7 @@ export default function BracketGeneratorPage() {
     }
   }, [teams]);
 
-  const generateBracketsInternal = () => {
+  const generateBracketsInternal = async () => {
     const paidTeams = teams.filter((t) => t.paid);
 
     // For this tournament, we expect exactly 16 paid teams
@@ -304,6 +274,73 @@ export default function BracketGeneratorPage() {
       buildMatchesForBracket(bracket2Teams, 2);
     }
 
+    // If there's an existing tournament, delete old brackets before setting new ones
+    let targetTournamentId = tournamentId;
+    
+    if (targetTournamentId) {
+      // Verify tournament exists
+      const { data: existingTournament, error: checkError } = await supabase
+        .from('tournaments')
+        .select('id')
+        .eq('id', targetTournamentId)
+        .single();
+
+      if (checkError || !existingTournament) {
+        targetTournamentId = '';
+        setTournamentId('');
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem('digibyte_current_tournament_id');
+        }
+      } else {
+        // Delete all old brackets for this tournament so public page shows fresh bracket
+        await supabase.from('brackets').delete().eq('tournament_id', targetTournamentId);
+      }
+    }
+
+    // If no tournament exists, create one
+    if (!targetTournamentId) {
+      const { data, error: createError } = await supabase
+        .from('tournaments')
+        .insert({
+          title: `Tournament ${new Date().toLocaleString()}`,
+          status: 'active',
+        })
+        .select('id')
+        .single();
+
+      if (createError || !data?.id) {
+        console.error('Error creating tournament for bracket regeneration:', createError);
+        // Still set local state even if tournament creation fails
+      } else {
+        targetTournamentId = data.id as string;
+        setTournamentId(targetTournamentId);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('digibyte_current_tournament_id', targetTournamentId);
+          window.localStorage.setItem('digibyte_bracket_type', bracketType);
+        }
+      }
+    }
+
+    // Save Round 1 matches to database immediately so public page shows new bracket
+    if (targetTournamentId) {
+      const bracketData = matches.map((m) => ({
+        tournament_id: targetTournamentId,
+        team1_id: m.team1?.id || null,
+        team2_id: m.team2?.id || null,
+        round: m.round,
+        match_number: m.matchNumber,
+        winner_id: null,
+        parent_match1: null,
+        parent_match2: null,
+      }));
+
+      const { error: insertError } = await supabase.from('brackets').insert(bracketData);
+      if (insertError) {
+        console.error('Error saving initial Round 1 brackets:', insertError);
+        // Still set local state even if save fails
+      }
+    }
+
     setBrackets(matches);
   };
 
@@ -317,7 +354,7 @@ export default function BracketGeneratorPage() {
       return;
     }
 
-    generateBracketsInternal();
+    void generateBracketsInternal();
   };
 
   const setWinner = async (matchNumber: number, bracket: BracketNumber, side: WinnerSide, bracketCategory?: BracketCategory) => {
@@ -2097,47 +2134,16 @@ export default function BracketGeneratorPage() {
         </p>
       </div>
 
-      <div className="mb-8 bg-gray-900/50 border border-blue-500/20 rounded-xl p-5 md:p-7 lg:p-8 glow-box">
-        {/* Bracket Type Selection */}
-        <div className="mb-6">
-          <label className="block text-white font-semibold mb-3 text-sm md:text-base">
-            Select Bracket System:
-          </label>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <button
-              type="button"
-              onClick={() => setBracketType('1-bracket')}
-              className={`px-4 sm:px-6 py-2 sm:py-3 rounded-lg transition-all text-sm md:text-base font-semibold ${
-                bracketType === '1-bracket'
-                  ? 'bg-blue-600 text-white border-2 border-blue-400'
-                  : 'bg-gray-800 text-gray-300 border-2 border-gray-600 hover:bg-gray-700'
-              }`}
-            >
-              1 Bracket (16 Teams)
-            </button>
-            <button
-              type="button"
-              onClick={() => setBracketType('2-brackets')}
-              className={`px-4 sm:px-6 py-2 sm:py-3 rounded-lg transition-all text-sm md:text-base font-semibold ${
-                bracketType === '2-brackets'
-                  ? 'bg-blue-600 text-white border-2 border-blue-400'
-                  : 'bg-gray-800 text-gray-300 border-2 border-gray-600 hover:bg-gray-700'
-              }`}
-            >
-              2 Brackets (8 Teams Each)
-            </button>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-6">
+      <div className="mb-4 sm:mb-6 md:mb-8 bg-gray-900/50 border border-blue-500/20 rounded-xl p-3 sm:p-4 md:p-5 lg:p-6 xl:p-8 glow-box">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mb-4 sm:mb-5 md:mb-6">
           <button
             onClick={generateBrackets}
             disabled={paidTeamsCount < 16}
-            className="px-4 sm:px-6 py-2 sm:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base w-full sm:w-auto"
+            className="px-3 py-1.5 sm:px-4 sm:py-2 md:px-6 md:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm md:text-base w-full sm:w-auto"
           >
-            <Shuffle className="w-4 h-4 sm:w-5 sm:h-5" />
+            <Shuffle className="w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5" />
             <span className="text-center">
-              Generate {bracketType === '1-bracket' ? 'Bracket (16 Teams)' : 'Bracket 1 & 2 (16 Teams)'}
+              Generate Bracket (16 Teams)
             </span>
           </button>
 
@@ -2146,32 +2152,23 @@ export default function BracketGeneratorPage() {
               <button
                 onClick={saveBrackets}
                 disabled={saving !== null}
-                className="px-4 sm:px-6 py-2 sm:py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 text-sm md:text-base w-full sm:w-auto"
+                className="px-3 py-1.5 sm:px-4 sm:py-2 md:px-6 md:py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 text-xs sm:text-sm md:text-base w-full sm:w-auto"
               >
-                <Save className="w-4 h-4 sm:w-5 sm:h-5" />
+                <Save className="w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5" />
                 <span>{saving ? 'Saving...' : 'Save Brackets'}</span>
               </button>
-              {tournamentId && (
-                <button
-                  type="button"
-                  onClick={() => loadBrackets(tournamentId, teams)}
-                  className="px-4 sm:px-6 py-2 sm:py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-all text-sm md:text-base w-full sm:w-auto"
-                >
-                  Load Brackets
-                </button>
-              )}
             </>
           )}
         </div>
 
         {paidTeamsCount < 16 && (
-          <div className="p-4 bg-yellow-600/20 border border-yellow-500/50 rounded-lg text-yellow-400">
+          <div className="p-2.5 sm:p-3 md:p-4 bg-yellow-600/20 border border-yellow-500/50 rounded-lg text-yellow-400 text-xs sm:text-sm md:text-base">
             This tournament format requires exactly 16 paid teams. Currently you have {paidTeamsCount} paid team(s).
           </div>
         )}
 
         {brackets.length > 0 && (
-          <div className="space-y-8">
+          <div className="space-y-3 sm:space-y-4 md:space-y-6 lg:space-y-8">
             {bracketType === '1-bracket' ? (
               // 1 Bracket System - Split layout: Lower brackets on left, Upper brackets on right
               (() => {
@@ -2183,10 +2180,10 @@ export default function BracketGeneratorPage() {
                 ).sort((a, b) => a - b);
 
                 return (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 xl:gap-16">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 md:gap-6 lg:gap-8 xl:gap-12">
                     {/* Left Column - Lower Bracket */}
-                    <div className="space-y-8">
-                      <h3 className="text-2xl xl:text-3xl font-bold text-yellow-400 mb-6 sticky top-0 bg-black/80 backdrop-blur-sm py-2 z-10">
+                    <div className="space-y-3 sm:space-y-4 md:space-y-6 lg:space-y-8">
+                      <h3 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-yellow-400 mb-2 sm:mb-3 md:mb-4 lg:mb-6 sticky top-0 bg-black/80 backdrop-blur-sm py-1 sm:py-1.5 md:py-2 z-10 text-center sm:text-left">
                         Lower Bracket
                       </h3>
                       {lowerBracketRounds.length > 0 ? (
@@ -2220,23 +2217,23 @@ export default function BracketGeneratorPage() {
                           const isExpanded = isRoundSaved ? expandedRounds.has(roundKey) : true;
                           
                           return (
-                            <div key={`lower-round-${round}`} className="bg-black/20 border border-yellow-500/30 rounded-lg p-5 md:p-6 lg:p-7">
-                              <div className="flex items-center justify-between mb-3">
+                            <div key={`lower-round-${round}`} className="bg-black/20 border border-yellow-500/30 rounded-lg p-2.5 sm:p-3 md:p-4 lg:p-5 xl:p-6">
+                              <div className="flex items-center justify-between mb-2 sm:mb-2.5 md:mb-3">
                                 {isRoundSaved ? (
                                   <button
                                     type="button"
                                     onClick={() => toggleRound(roundKey)}
-                                    className="flex items-center gap-2 flex-1 text-left cursor-pointer hover:opacity-80 transition-opacity"
+                                    className="flex items-center gap-1.5 sm:gap-2 flex-1 text-left cursor-pointer hover:opacity-80 transition-opacity"
                                   >
-                                    {isExpanded ? <ChevronUp className="w-5 h-5 text-yellow-400" /> : <ChevronDown className="w-5 h-5 text-yellow-400" />}
-                                    <h4 className="text-xl font-semibold text-yellow-400">
+                                    {isExpanded ? <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400" /> : <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400" />}
+                                    <h4 className="text-sm sm:text-base md:text-lg lg:text-xl font-semibold text-yellow-400">
                                       {round === 20 ? 'Lower Bracket Round 2 Final' : round === 25 ? 'Lower Bracket Round 3' : round === 30 ? 'Lower Bracket Final' : `Round ${round}`}
-                                      <span className="text-sm text-green-400 ml-2">✓ Saved</span>
+                                      <span className="text-xs sm:text-sm text-green-400 ml-1 sm:ml-2">✓ Saved</span>
                                     </h4>
                                   </button>
                                 ) : (
-                                  <div className="flex items-center gap-2 flex-1">
-                                    <h4 className="text-xl font-semibold text-yellow-400">
+                                  <div className="flex items-center gap-1.5 sm:gap-2 flex-1">
+                                    <h4 className="text-sm sm:text-base md:text-lg lg:text-xl font-semibold text-yellow-400">
                                       {round === 20 ? 'Lower Bracket Round 2 Final' : round === 25 ? 'Lower Bracket Round 3' : round === 30 ? 'Lower Bracket Final' : `Round ${round}`}
                                     </h4>
                                   </div>
@@ -2244,18 +2241,18 @@ export default function BracketGeneratorPage() {
                               </div>
                               {isExpanded && (
                                 <>
-                                  <div className="grid grid-cols-1 gap-4 md:gap-5 lg:gap-6">
+                                  <div className="grid grid-cols-1 gap-2 sm:gap-3 md:gap-4 lg:gap-5">
                                     {roundMatches.map((match) => (
                                       <div
                                         key={`lower-${match.matchNumber}`}
-                                        className="bg-black/30 border border-yellow-500/20 rounded-lg p-4 md:p-5 lg:p-6"
+                                        className="bg-black/30 border border-yellow-500/20 rounded-lg p-2.5 sm:p-3 md:p-4 lg:p-5"
                                       >
-                                        <div className="text-yellow-400 text-sm md:text-base lg:text-lg mb-3 md:mb-4">
+                                        <div className="text-yellow-400 text-xs sm:text-sm md:text-base lg:text-lg mb-2 sm:mb-2.5 md:mb-3">
                                           Lower Bracket Match {roundMatches.length === 2 && match.matchNumber === roundMatches[0]?.matchNumber ? '1' : roundMatches.length === 2 ? '2' : match.matchNumber}
                                         </div>
-                                        <div className="space-y-2 md:space-y-3 lg:space-y-4">
+                                        <div className="space-y-1.5 sm:space-y-2 md:space-y-2.5 lg:space-y-3">
                                           <div
-                                            className={`flex items-center justify-between p-3 md:p-4 lg:p-5 rounded border ${
+                                            className={`flex items-center justify-between p-2 sm:p-2.5 md:p-3 lg:p-4 rounded border ${
                                               match.winner === 'team1'
                                                 ? 'glow-green-border bg-green-900/10'
                                                 : match.winner === 'team2'
@@ -2263,12 +2260,12 @@ export default function BracketGeneratorPage() {
                                                   : 'bg-gray-800/50 border-gray-700'
                                             }`}
                                           >
-                                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                                              <span className="text-white font-semibold text-base md:text-lg lg:text-xl truncate">
+                                            <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
+                                              <span className="text-white font-semibold text-xs sm:text-sm md:text-base lg:text-lg truncate">
                                                 {match.team1?.team_name || 'BYE'}
                                               </span>
                                               {match.team1 && teamStandings[match.team1.id] && (
-                                                <span className="text-xs text-gray-400 whitespace-nowrap">
+                                                <span className="text-[10px] sm:text-xs text-gray-400 whitespace-nowrap">
                                                   ({teamStandings[match.team1.id].wins}W-{teamStandings[match.team1.id].losses}L)
                                                 </span>
                                               )}
@@ -2277,7 +2274,7 @@ export default function BracketGeneratorPage() {
                                               <button
                                                 type="button"
                                                 onClick={() => setWinner(match.matchNumber, 1, 'team1', match.bracketCategory)}
-                                                className={`w-8 h-8 flex items-center justify-center rounded-md text-xs font-bold border transition-colors flex-shrink-0 ${
+                                                className={`w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 flex items-center justify-center rounded-md text-[10px] sm:text-xs font-bold border transition-colors flex-shrink-0 ${
                                                   match.winner === 'team1'
                                                     ? 'bg-green-600 text-white border-green-400'
                                                     : match.winner === 'team2'
@@ -2289,9 +2286,9 @@ export default function BracketGeneratorPage() {
                                               </button>
                                             )}
                                           </div>
-                                          <div className="text-center text-gray-500 text-xs md:text-sm">VS</div>
+                                          <div className="text-center text-gray-500 text-[10px] sm:text-xs md:text-sm">VS</div>
                                           <div
-                                            className={`flex items-center justify-between p-3 md:p-4 lg:p-5 rounded border ${
+                                            className={`flex items-center justify-between p-2 sm:p-2.5 md:p-3 lg:p-4 rounded border ${
                                               match.winner === 'team2'
                                                 ? 'glow-green-border bg-green-900/10'
                                                 : match.winner === 'team1'
@@ -2299,12 +2296,12 @@ export default function BracketGeneratorPage() {
                                                   : 'bg-gray-800/50 border-gray-700'
                                             }`}
                                           >
-                                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                                              <span className="text-white font-semibold text-base md:text-lg lg:text-xl truncate">
+                                            <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
+                                              <span className="text-white font-semibold text-xs sm:text-sm md:text-base lg:text-lg truncate">
                                                 {match.team2?.team_name || 'BYE'}
                                               </span>
                                               {match.team2 && teamStandings[match.team2.id] && (
-                                                <span className="text-xs text-gray-400 whitespace-nowrap">
+                                                <span className="text-[10px] sm:text-xs text-gray-400 whitespace-nowrap">
                                                   ({teamStandings[match.team2.id].wins}W-{teamStandings[match.team2.id].losses}L)
                                                 </span>
                                               )}
@@ -2313,7 +2310,7 @@ export default function BracketGeneratorPage() {
                                               <button
                                                 type="button"
                                                 onClick={() => setWinner(match.matchNumber, 1, 'team2', match.bracketCategory)}
-                                                className={`w-8 h-8 flex items-center justify-center rounded-md text-xs font-bold border transition-colors flex-shrink-0 ${
+                                                className={`w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 flex items-center justify-center rounded-md text-[10px] sm:text-xs font-bold border transition-colors flex-shrink-0 ${
                                                   match.winner === 'team2'
                                                     ? 'bg-green-600 text-white border-green-400'
                                                     : match.winner === 'team1'
@@ -2329,14 +2326,14 @@ export default function BracketGeneratorPage() {
                                       </div>
                                     ))}
                                   </div>
-                                  <div className="flex items-center justify-end gap-2 mt-4">
+                                  <div className="flex items-center justify-end gap-1.5 sm:gap-2 mt-2 sm:mt-3 md:mt-4">
                                     {hasAnyWinners && (
                                       <button
                                         type="button"
                                         onClick={() => handleCancelRoundClick(round, 1, 'lower')}
-                                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all flex items-center space-x-2 text-sm md:text-base"
+                                        className="px-2.5 py-1.5 sm:px-3 sm:py-2 md:px-4 md:py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all flex items-center space-x-1.5 sm:space-x-2 text-xs sm:text-sm md:text-base"
                                       >
-                                        <X className="w-4 h-4" />
+                                        <X className="w-3 h-3 sm:w-4 sm:h-4" />
                                         <span>Cancel Round {round}</span>
                                       </button>
                                     )}
@@ -2345,12 +2342,12 @@ export default function BracketGeneratorPage() {
                                         type="button"
                                         onClick={() => saveRound(round, 1, 'lower')}
                                         disabled={!allHaveWinners || (saving?.round === round && saving?.bracketCategory === 'lower')}
-                                        className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-all flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base"
+                                        className="px-2.5 py-1.5 sm:px-3 sm:py-2 md:px-4 md:py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-all flex items-center space-x-1.5 sm:space-x-2 disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm md:text-base"
                                       >
                                         {(saving?.round === round && saving?.bracketCategory === 'lower') ? (
-                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                          <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" />
                                         ) : (
-                                          <Save className="w-4 h-4" />
+                                          <Save className="w-3 h-3 sm:w-4 sm:h-4" />
                                         )}
                                         <span>{(saving?.round === round && saving?.bracketCategory === 'lower') ? 'Saving...' : `Save Round ${round}`}</span>
                                       </button>
@@ -2367,8 +2364,8 @@ export default function BracketGeneratorPage() {
                     </div>
 
                     {/* Right Column - Upper Bracket */}
-                    <div className="space-y-8">
-                      <h3 className="text-2xl font-bold text-blue-400 mb-6 sticky top-0 bg-black/80 backdrop-blur-sm py-2 z-10">
+                    <div className="space-y-3 sm:space-y-4 md:space-y-6 lg:space-y-8">
+                      <h3 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-blue-400 mb-2 sm:mb-3 md:mb-4 lg:mb-6 sticky top-0 bg-black/80 backdrop-blur-sm py-1 sm:py-1.5 md:py-2 z-10 text-center sm:text-left">
                         Upper Bracket
                       </h3>
                       {upperBracketRounds.map((round) => {
@@ -2414,23 +2411,23 @@ export default function BracketGeneratorPage() {
                         const isExpanded = isRoundSaved ? expandedRounds.has(roundKey) : true;
 
                         return (
-                          <div key={`round-${round}`} className="bg-black/20 border border-blue-500/30 rounded-lg p-5 md:p-6 lg:p-7">
-                            <div className="flex items-center justify-between mb-3">
+                          <div key={`round-${round}`} className="bg-black/20 border border-blue-500/30 rounded-lg p-2.5 sm:p-3 md:p-4 lg:p-5 xl:p-6">
+                            <div className="flex items-center justify-between mb-2 sm:mb-2.5 md:mb-3">
                               {isRoundSaved ? (
                                 <button
                                   type="button"
                                   onClick={() => toggleRound(roundKey)}
-                                  className="flex items-center gap-2 flex-1 text-left cursor-pointer hover:opacity-80 transition-opacity"
+                                  className="flex items-center gap-1.5 sm:gap-2 flex-1 text-left cursor-pointer hover:opacity-80 transition-opacity"
                                 >
-                                  {isExpanded ? <ChevronUp className="w-5 h-5 text-blue-400" /> : <ChevronDown className="w-5 h-5 text-blue-400" />}
-                                  <h4 className="text-xl font-semibold text-blue-400">
+                                  {isExpanded ? <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400" /> : <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400" />}
+                                  <h4 className="text-sm sm:text-base md:text-lg lg:text-xl font-semibold text-blue-400">
                                     {round === 6 ? 'Final Game' : `Round ${round} ${round === 1 ? '(16 Teams)' : ''}`}
-                                    <span className="text-sm text-green-400 ml-2">✓ Saved</span>
+                                    <span className="text-xs sm:text-sm text-green-400 ml-1 sm:ml-2">✓ Saved</span>
                                   </h4>
                                 </button>
                               ) : (
-                                <div className="flex items-center gap-2 flex-1">
-                                  <h4 className="text-xl font-semibold text-blue-400">
+                                <div className="flex items-center gap-1.5 sm:gap-2 flex-1">
+                                  <h4 className="text-sm sm:text-base md:text-lg lg:text-xl font-semibold text-blue-400">
                                     {round === 6 ? 'Final Game' : `Round ${round} ${round === 1 ? '(16 Teams)' : ''}`}
                                   </h4>
                                 </div>
@@ -2438,19 +2435,19 @@ export default function BracketGeneratorPage() {
                             </div>
                             {isExpanded && (
                               <>
-                                <div className="grid grid-cols-1 gap-4 md:gap-5 lg:gap-6">
+                                <div className="grid grid-cols-1 gap-2 sm:gap-3 md:gap-4 lg:gap-5">
                                   {roundMatches.map((match) => (
                                     <div
                                       key={`b1-${match.matchNumber}`}
-                  className="bg-black/30 border border-blue-500/20 rounded-lg p-4 md:p-5 lg:p-6"
+                  className="bg-black/30 border border-blue-500/20 rounded-lg p-2.5 sm:p-3 md:p-4 lg:p-5"
                 >
-                                      <div className="text-blue-400 text-sm md:text-base lg:text-lg mb-3 md:mb-4">
+                                      <div className="text-blue-400 text-xs sm:text-sm md:text-base lg:text-lg mb-2 sm:mb-2.5 md:mb-3">
                                         Match {match.matchNumber}
                                       </div>
-                  <div className="space-y-1.5 md:space-y-2">
+                  <div className="space-y-1.5 sm:space-y-2 md:space-y-2.5">
                                         {/* Team 1 row */}
                                         <div
-                                          className={`flex items-center justify-between p-3 md:p-4 lg:p-5 rounded border ${
+                                          className={`flex items-center justify-between p-2 sm:p-2.5 md:p-3 lg:p-4 rounded border ${
                                             match.winner === 'team1'
                                               ? 'glow-green-border bg-green-900/10'
                                               : match.winner === 'team2'
@@ -2458,12 +2455,12 @@ export default function BracketGeneratorPage() {
                                                 : 'bg-gray-800/50 border-gray-700'
                                           }`}
                                         >
-                                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-white font-semibold text-sm md:text-base truncate">
+                                          <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
+                      <span className="text-white font-semibold text-xs sm:text-sm md:text-base truncate">
                         {match.team1?.team_name || 'BYE'}
                       </span>
                                             {match.team1 && teamStandings[match.team1.id] && (
-                                              <span className="text-xs text-gray-400 whitespace-nowrap">
+                                              <span className="text-[10px] sm:text-xs text-gray-400 whitespace-nowrap">
                                                 ({teamStandings[match.team1.id].wins}W-{teamStandings[match.team1.id].losses}L)
                                               </span>
                                             )}
@@ -2472,7 +2469,7 @@ export default function BracketGeneratorPage() {
                                             <button
                                               type="button"
                                               onClick={() => setWinner(match.matchNumber, 1, 'team1', match.bracketCategory)}
-                                              className={`w-8 h-8 flex items-center justify-center rounded-md text-xs font-bold border transition-colors flex-shrink-0 ${
+                                              className={`w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 flex items-center justify-center rounded-md text-[10px] sm:text-xs font-bold border transition-colors flex-shrink-0 ${
                                                 match.winner === 'team1'
                                                   ? 'bg-green-600 text-white border-green-400'
                                                   : match.winner === 'team2'
@@ -2485,11 +2482,11 @@ export default function BracketGeneratorPage() {
                                           )}
                                         </div>
 
-                    <div className="text-center text-gray-500 text-xs md:text-sm">VS</div>
+                    <div className="text-center text-gray-500 text-[10px] sm:text-xs md:text-sm">VS</div>
 
                                         {/* Team 2 row */}
                                         <div
-                                          className={`flex items-center justify-between p-3 md:p-4 lg:p-5 rounded border ${
+                                          className={`flex items-center justify-between p-2 sm:p-2.5 md:p-3 lg:p-4 rounded border ${
                                             match.winner === 'team2'
                                               ? 'glow-green-border bg-green-900/10'
                                               : match.winner === 'team1'
@@ -2497,12 +2494,12 @@ export default function BracketGeneratorPage() {
                                                 : 'bg-gray-800/50 border-gray-700'
                                           }`}
                                         >
-                                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-white font-semibold text-sm md:text-base truncate">
+                                          <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
+                      <span className="text-white font-semibold text-xs sm:text-sm md:text-base truncate">
                         {match.team2?.team_name || 'BYE'}
                       </span>
                                             {match.team2 && teamStandings[match.team2.id] && (
-                                              <span className="text-xs text-gray-400 whitespace-nowrap">
+                                              <span className="text-[10px] sm:text-xs text-gray-400 whitespace-nowrap">
                                                 ({teamStandings[match.team2.id].wins}W-{teamStandings[match.team2.id].losses}L)
                                               </span>
                                             )}
@@ -2511,7 +2508,7 @@ export default function BracketGeneratorPage() {
                                             <button
                                               type="button"
                                               onClick={() => setWinner(match.matchNumber, 1, 'team2', match.bracketCategory)}
-                                              className={`w-8 h-8 flex items-center justify-center rounded-md text-xs font-bold border transition-colors flex-shrink-0 ${
+                                              className={`w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 flex items-center justify-center rounded-md text-[10px] sm:text-xs font-bold border transition-colors flex-shrink-0 ${
                                                 match.winner === 'team2'
                                                   ? 'bg-green-600 text-white border-green-400'
                                                   : match.winner === 'team1'
@@ -2522,19 +2519,19 @@ export default function BracketGeneratorPage() {
                                               {match.winner === 'team2' ? 'W' : match.winner === 'team1' ? 'L' : 'W'}
                                             </button>
                                           )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-                                <div className="flex items-center justify-end gap-2 mt-4">
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="flex items-center justify-end gap-1.5 sm:gap-2 mt-2 sm:mt-3 md:mt-4">
                                   {hasAnyWinners && (
                                     <button
                                       type="button"
                                       onClick={() => handleCancelRoundClick(round, 1)}
-                                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all flex items-center space-x-2 text-sm md:text-base"
+                                      className="px-2.5 py-1.5 sm:px-3 sm:py-2 md:px-4 md:py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all flex items-center space-x-1.5 sm:space-x-2 text-xs sm:text-sm md:text-base"
                                     >
-                                      <X className="w-4 h-4" />
+                                      <X className="w-3 h-3 sm:w-4 sm:h-4" />
                                       <span>Cancel Round {round}</span>
                                     </button>
                                   )}
@@ -2543,12 +2540,12 @@ export default function BracketGeneratorPage() {
                                       type="button"
                                       onClick={() => saveRound(round, 1, 'upper')}
                                       disabled={!allHaveWinners || (saving?.round === round && saving?.bracketCategory === 'upper')}
-                                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base"
+                                      className="px-2.5 py-1.5 sm:px-3 sm:py-2 md:px-4 md:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center space-x-1.5 sm:space-x-2 disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm md:text-base"
                                     >
                                       {(saving?.round === round && saving?.bracketCategory === 'upper') ? (
-                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" />
                                       ) : (
-                                        <Save className="w-4 h-4" />
+                                        <Save className="w-3 h-3 sm:w-4 sm:h-4" />
                                       )}
                                       <span>{(saving?.round === round && saving?.bracketCategory === 'upper') ? 'Saving...' : `Save Round ${round}`}</span>
                                     </button>
@@ -2878,7 +2875,7 @@ export default function BracketGeneratorPage() {
         cancelLabel="Cancel"
         onConfirm={() => {
           setConfirmGenerateOpen(false);
-          generateBracketsInternal();
+          void generateBracketsInternal();
         }}
         onCancel={() => setConfirmGenerateOpen(false)}
       />

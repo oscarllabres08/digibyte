@@ -44,10 +44,28 @@ export type Champion = {
 export type Bracket = {
   id: string;
   tournament_id: string;
-  team1_id?: string;
-  team2_id?: string;
+  team1_id?: string | null;
+  team2_id?: string | null;
   round: number;
   match_number: number;
-  winner_id?: string;
+  winner_id?: string | null;
+  parent_match1?: number | null;
+  parent_match2?: number | null;
   created_at: string;
+};
+
+export type Player = {
+  id: string;
+  complete_name: string;
+  ign: string;
+  address: string;
+  game: string;
+  created_at: string;
+};
+
+export type RegistrationSettings = {
+  id: string;
+  team_registration_active: boolean;
+  updated_at: string;
+  updated_by?: string;
 };

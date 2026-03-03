@@ -27,21 +27,21 @@ export default function TournamentInfo() {
   };
 
   return (
-    <section id="tournaments" className="min-h-screen py-20 relative overflow-hidden">
-      <div className="container mx-auto px-4 md:px-6 relative z-10">
-        <div className="text-center mb-12 md:mb-16 animate-fade-in">
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-2 md:mb-4">
+    <section id="tournaments" className="min-h-screen py-12 sm:py-16 md:py-20 relative overflow-hidden">
+      <div className="container mx-auto px-4 sm:px-6 relative z-10">
+        <div className="text-center mb-8 sm:mb-12 md:mb-16 animate-fade-in">
+          <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-2 sm:mb-3 md:mb-4">
             Tournament <span className="text-blue-400 glow-text">Info</span>
           </h2>
-          <p className="text-gray-400 text-base md:text-lg">Everything you need to know</p>
+          <p className="text-gray-400 text-sm sm:text-base md:text-lg">Everything you need to know</p>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6 md:gap-8 mb-12">
-          <div className="bg-gray-900/50 border border-blue-500/20 rounded-xl p-6 md:p-8 animate-slide-up glow-box-subtle">
-            <div className="flex justify-center mb-4">
-              <BookOpen className="w-10 h-10 md:w-12 md:h-12 text-blue-400" />
+        <div className="grid md:grid-cols-2 gap-4 sm:gap-6 md:gap-8 mb-8 sm:mb-12">
+          <div className="bg-gray-900/50 border border-blue-500/20 rounded-xl p-4 sm:p-5 md:p-6 lg:p-8 animate-slide-up glow-box-subtle">
+            <div className="flex justify-center mb-3 sm:mb-4">
+              <BookOpen className="w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 text-blue-400" />
             </div>
-            <h3 className="text-xl md:text-2xl font-bold text-white mb-4 text-center">Rules & Regulations</h3>
+            <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-white mb-3 sm:mb-4 text-center">Rules & Regulations</h3>
             {activeTournament?.rules ? (
               <ul className="space-y-3 text-gray-300 text-sm md:text-base text-center">
                 {activeTournament.rules.split('\n').filter(r => r.trim()).map((rule, idx) => (
@@ -73,30 +73,30 @@ export default function TournamentInfo() {
             )}
           </div>
 
-          <div className="bg-gray-900/50 border border-blue-500/20 rounded-xl p-6 md:p-8 animate-slide-up delay-200 glow-box-subtle">
-            <div className="flex justify-center mb-4">
-              <Trophy className="w-10 h-10 md:w-12 md:h-12 text-blue-400" />
+          <div className="bg-gray-900/50 border border-blue-500/20 rounded-xl p-4 sm:p-5 md:p-6 lg:p-8 animate-slide-up delay-200 glow-box-subtle">
+            <div className="flex justify-center mb-3 sm:mb-4">
+              <Trophy className="w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 text-blue-400" />
             </div>
-            <h3 className="text-xl md:text-2xl font-bold text-white mb-4 text-center">Prize Pool</h3>
-            <div className="space-y-3 md:space-y-4">
+            <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-white mb-3 sm:mb-4 text-center">Prize Pool</h3>
+            <div className="space-y-2 sm:space-y-3 md:space-y-4">
               {(activeTournament?.prize_1st || activeTournament?.prize_2nd || activeTournament?.prize_3rd) ? (
                 <>
                   {activeTournament.prize_1st && (
-                    <div className="p-4 bg-gradient-to-r from-yellow-600/20 to-yellow-600/10 border border-yellow-500/30 rounded-lg text-center">
-                      <div className="text-yellow-400 font-semibold text-sm md:text-base mb-1">1st Place</div>
-                      <div className="text-lg md:text-2xl font-bold text-white break-words">{activeTournament.prize_1st}</div>
+                    <div className="p-3 sm:p-4 bg-gradient-to-r from-yellow-600/20 to-yellow-600/10 border border-yellow-500/30 rounded-lg text-center">
+                      <div className="text-yellow-400 font-semibold text-xs sm:text-sm md:text-base mb-1">1st Place</div>
+                      <div className="text-base sm:text-lg md:text-2xl font-bold text-white break-words">{activeTournament.prize_1st}</div>
                     </div>
                   )}
                   {activeTournament.prize_2nd && (
-                    <div className="p-4 bg-gradient-to-r from-gray-400/20 to-gray-400/10 border border-gray-500/30 rounded-lg text-center">
-                      <div className="text-gray-300 font-semibold text-sm md:text-base mb-1">2nd Place</div>
-                      <div className="text-lg md:text-2xl font-bold text-white break-words">{activeTournament.prize_2nd}</div>
+                    <div className="p-3 sm:p-4 bg-gradient-to-r from-gray-400/20 to-gray-400/10 border border-gray-500/30 rounded-lg text-center">
+                      <div className="text-gray-300 font-semibold text-xs sm:text-sm md:text-base mb-1">2nd Place</div>
+                      <div className="text-base sm:text-lg md:text-2xl font-bold text-white break-words">{activeTournament.prize_2nd}</div>
                     </div>
                   )}
                   {activeTournament.prize_3rd && (
-                    <div className="p-4 bg-gradient-to-r from-orange-600/20 to-orange-600/10 border border-orange-500/30 rounded-lg text-center">
-                      <div className="text-orange-400 font-semibold text-sm md:text-base mb-1">3rd Place</div>
-                      <div className="text-lg md:text-2xl font-bold text-white break-words">{activeTournament.prize_3rd}</div>
+                    <div className="p-3 sm:p-4 bg-gradient-to-r from-orange-600/20 to-orange-600/10 border border-orange-500/30 rounded-lg text-center">
+                      <div className="text-orange-400 font-semibold text-xs sm:text-sm md:text-base mb-1">3rd Place</div>
+                      <div className="text-base sm:text-lg md:text-2xl font-bold text-white break-words">{activeTournament.prize_3rd}</div>
                     </div>
                   )}
                 </>
@@ -121,20 +121,20 @@ export default function TournamentInfo() {
         </div>
 
         {tournaments.length > 0 && (
-          <div className="bg-gray-900/50 border border-blue-500/20 rounded-xl p-6 md:p-8 animate-slide-up delay-400 glow-box-subtle">
-            <div className="flex justify-center mb-4">
-              <Shield className="w-10 h-10 md:w-12 md:h-12 text-blue-400" />
+          <div className="bg-gray-900/50 border border-blue-500/20 rounded-xl p-4 sm:p-5 md:p-6 lg:p-8 animate-slide-up delay-400 glow-box-subtle">
+            <div className="flex justify-center mb-3 sm:mb-4">
+              <Shield className="w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 text-blue-400" />
             </div>
-            <h3 className="text-xl md:text-2xl font-bold text-white mb-4 text-center">Active Tournaments</h3>
-            <div className="space-y-3 md:space-y-4">
+            <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-white mb-3 sm:mb-4 text-center">Active Tournaments</h3>
+            <div className="space-y-2 sm:space-y-3 md:space-y-4">
               {tournaments.map((tournament) => (
-                <div key={tournament.id} className="p-5 md:p-6 bg-black/30 rounded-lg border border-blue-500/10 text-center">
-                  <h4 className="text-xl md:text-2xl font-bold text-white mb-3">{tournament.title}</h4>
+                <div key={tournament.id} className="p-4 sm:p-5 md:p-6 bg-black/30 rounded-lg border border-blue-500/10 text-center">
+                  <h4 className="text-lg sm:text-xl md:text-2xl font-bold text-white mb-2 sm:mb-3">{tournament.title}</h4>
                   {tournament.description && (
-                    <p className="text-gray-300 mb-3 text-base md:text-lg break-words leading-relaxed">{tournament.description}</p>
+                    <p className="text-gray-300 mb-2 sm:mb-3 text-sm sm:text-base md:text-lg break-words leading-relaxed">{tournament.description}</p>
                   )}
                   {tournament.start_date && (
-                    <p className="text-blue-400 text-sm md:text-base font-semibold">
+                    <p className="text-blue-400 text-xs sm:text-sm md:text-base font-semibold">
                       Starts: {new Date(tournament.start_date).toLocaleDateString()}
                     </p>
                   )}

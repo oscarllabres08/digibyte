@@ -26,12 +26,12 @@ export default function Header() {
   return (
     <>
       <header className="fixed w-full top-0 z-50 bg-black/80 backdrop-blur-md border-b border-blue-500/20">
-        <nav className="container mx-auto px-4 md:px-6 py-4">
+        <nav className="container mx-auto px-3 sm:px-4 md:px-6 py-2 sm:py-3 md:py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 md:space-x-3 group">
-              <Trophy className="w-6 h-6 md:w-8 md:h-8 text-blue-400 group-hover:text-blue-300 transition-all duration-300 group-hover:rotate-12" />
-              <span className="text-lg md:text-2xl font-bold text-white tracking-wider">
-                <span className="text-blue-400 glow-text">Digibyte</span> Net Cafe
+            <div className="flex items-center space-x-1.5 sm:space-x-2 md:space-x-3 group">
+              <Trophy className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 text-blue-400 group-hover:text-blue-300 transition-all duration-300 group-hover:rotate-12" />
+              <span className="text-base sm:text-lg md:text-2xl font-bold text-white tracking-tight sm:tracking-wider">
+                <span className="text-blue-400 glow-text">Digibyte</span> <span className="hidden sm:inline">Net Cafe</span>
               </span>
             </div>
 
